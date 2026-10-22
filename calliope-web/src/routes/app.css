@@ -133,6 +133,11 @@ code,
 	cursor: pointer;
 }
 
+/* Text-file upload under the Story idea field. */
+.upload-row {
+	margin-top: 8px;
+}
+
 /* Dark theme scrollbars (Firefox + Chromium) */
 * {
 	scrollbar-width: thin;

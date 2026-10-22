@@ -16,6 +16,7 @@
 		recommendSceneCount,
 	} from '$lib/durationBudget';
 	import { toast } from '$lib/toast';
+	import { readTextFile, TEXT_FILE_ACCEPT } from '$lib/textFile';
 	import { t } from '$lib/i18n.svelte';
 	import { agentDeepLink } from '$lib/agentTasks';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -120,6 +121,21 @@
 	// Over the backend's LONG_IDEA_CHARS (agent/idea_guard.py) the drafter refuses.
 	const ideaTooLong = $derived(ideaDraft.length > 2000);
 	const sourceChars = $derived(story.project.source_chars ?? 0);
+	let fileInput = $state<HTMLInputElement | null>(null);
+
+	async function onFilePicked(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		try {
+			ideaDraft = await readTextFile(file);
+			toast.success(t('projects.fileLoaded', { name: file.name, n: ideaDraft.length.toLocaleString() }));
+			await persistSettings();
+		} catch {
+			toast.error(t('projects.fileFailed'));
+		}
+	}
 
 	const condenseMutation = createMutation({
 		mutationFn: () =>
@@ -415,6 +431,12 @@
 	{:else if sourceChars}
 		<p class="field-hint">{t('story.sourceStored', { n: sourceChars.toLocaleString() })}</p>
 	{/if}
+	<input type="file" accept={TEXT_FILE_ACCEPT} hidden bind:this={fileInput} onchange={onFilePicked} />
+	<div class="condense-row">
+		<Button variant="secondary" size="sm" onclick={() => fileInput?.click()}>
+			<Icon name="upload" size={14} /> {t('projects.uploadText')}
+		</Button>
+	</div>
 	{#if (ideaTooLong || sourceChars) && !externallyAuthored}
 		<div class="condense-row">
 			<Button

@@ -10,6 +10,7 @@
 	import ProjectCard from '$lib/components/ProjectCard.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import { toast } from '$lib/toast';
+	import { readTextFile, TEXT_FILE_ACCEPT, titleFromFileName } from '$lib/textFile';
 
 	const client = useQueryClient();
 
@@ -88,6 +89,21 @@
 	// project created this way is still `builtin` and so still gets the 422.
 	const ideaTooLong = $derived(idea.length > 2000);
 	let condense = $state(true);
+	let fileInput = $state<HTMLInputElement | null>(null);
+
+	async function onFilePicked(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		try {
+			idea = await readTextFile(file);
+			if (!title.trim()) title = titleFromFileName(file.name);
+			toast.success(t('projects.fileLoaded', { name: file.name, n: idea.length.toLocaleString() }));
+		} catch {
+			toast.error(t('projects.fileFailed'));
+		}
+	}
 
 	function onCreate(e: Event) {
 		e.preventDefault();
@@ -191,6 +207,12 @@
 					{t('projects.ideaHint')}
 					<span class="idea-count">{t('projects.ideaCount', { count: idea.length })}</span>
 				</p>
+				<input type="file" accept={TEXT_FILE_ACCEPT} hidden bind:this={fileInput} onchange={onFilePicked} />
+				<div class="upload-row">
+					<Button variant="secondary" size="sm" onclick={() => fileInput?.click()}>
+						<Icon name="upload" size={14} /> {t('projects.uploadText')}
+					</Button>
+				</div>
 				{#if ideaTooLong}
 					<label class="condense-toggle">
 						<input type="checkbox" bind:checked={condense} />
