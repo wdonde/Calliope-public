@@ -128,6 +128,9 @@ async def update_project(project_id: int, payload: ProjectUpdate):
         if not data:
             return row_to_dict(existing)
 
+        if "source_summaries" in data:
+            parts = [p.strip() for p in data["source_summaries"] or [] if p and p.strip()]
+            data["source_summaries"] = json.dumps(parts, ensure_ascii=False) if parts else None
         fields = ", ".join(f"{k} = :{k}" for k in data.keys())
         data["id"] = project_id
         conn.execute(

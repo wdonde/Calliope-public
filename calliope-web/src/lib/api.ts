@@ -27,6 +27,8 @@ export interface Project {
 	ingest_mode: string;
 	/** Length of the stored novel (`source_text`), when one was condensed into `idea`. */
 	source_chars?: number | null;
+	/** Part-by-part outline of the stored novel; Draft Storyline reads it. */
+	source_summaries?: string[];
 	created_at: string;
 	updated_at: string;
 	stats?: ProjectStats;
@@ -249,7 +251,10 @@ export const projects = {
 	create: (payload: ProjectCreate) =>
 		api<Project>('/api/projects', { method: 'POST', body: JSON.stringify(payload) }),
 	get: (id: number) => api<Project & { stats: ProjectStats }>(`/api/projects/${id}`),
-	update: (id: number, payload: Partial<ProjectCreate & { status?: string; cover_path?: string | null }>) =>
+	update: (
+		id: number,
+		payload: Partial<ProjectCreate & { status?: string; cover_path?: string | null; source_summaries?: string[] }>,
+	) =>
 		api<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 	delete: (id: number) => api<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
 	getStory: (id: number) => api<StoryData>(`/api/projects/${id}/story`),

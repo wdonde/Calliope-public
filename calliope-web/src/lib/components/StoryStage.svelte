@@ -122,6 +122,23 @@
 	const ideaTooLong = $derived(ideaDraft.length > 2000);
 	const sourceChars = $derived(story.project.source_chars ?? 0);
 	let fileInput = $state<HTMLInputElement | null>(null);
+	let outlineOpen = $state(false);
+	let outlineDraft = $state<string[]>([]);
+	let outlineDirty = $state(false);
+	$effect(() => {
+		outlineDraft = [...(story.project.source_summaries ?? [])];
+		outlineDirty = false;
+	});
+
+	const saveOutline = createMutation({
+		mutationFn: () => projects.update(projectId, { source_summaries: outlineDraft }),
+		onSuccess: () => {
+			outlineDirty = false;
+			client.invalidateQueries({ queryKey: ['story'] });
+			toast.success(t('story.outlineSaved'));
+		},
+		onError: (err) => toast.error(err instanceof Error ? err.message : String(err)),
+	});
 	// Off: genre, tone and length set by hand survive a (re-)summary.
 	let fillFields = $state(true);
 
@@ -460,6 +477,42 @@
 		</div>
 	{/if}
 </Card>
+
+{#if outlineDraft.length}
+	<Card>
+		{#snippet header()}
+			<button type="button" class="outline-toggle" onclick={() => (outlineOpen = !outlineOpen)}>
+				<Icon name={outlineOpen ? 'chevron-down' : 'chevron-right'} size={15} />
+				<h3 class="card-h">{t('story.outlineTitle', { n: outlineDraft.length })}</h3>
+			</button>
+		{/snippet}
+		<p class="field-hint">{t('story.outlineHint')}</p>
+		{#if outlineOpen}
+			<ol class="outline-list">
+				{#each outlineDraft as _, i (i)}
+					<li>
+						<span class="outline-num">{t('story.outlinePart', { n: i + 1 })}</span>
+						<textarea
+							class="field-textarea"
+							rows="4"
+							bind:value={outlineDraft[i]}
+							oninput={() => (outlineDirty = true)}
+						></textarea>
+					</li>
+				{/each}
+			</ol>
+			<div class="condense-row">
+				<Button
+					variant="primary"
+					disabled={!outlineDirty || $saveOutline.isPending}
+					onclick={() => $saveOutline.mutate()}
+				>
+					{t('story.outlineSave')}
+				</Button>
+			</div>
+		{/if}
+	</Card>
+{/if}
 
 <Card>
 	{#snippet header()}
@@ -806,6 +859,30 @@
 />
 
 <style>
+	.outline-toggle {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		cursor: pointer;
+	}
+	.outline-list {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin: 12px 0 0;
+		padding: 0;
+		list-style: none;
+	}
+	.outline-num {
+		display: block;
+		margin-bottom: 4px;
+		font-size: 12px;
+		color: var(--text-muted);
+	}
 	.condense-row {
 		margin-top: 10px;
 	}
