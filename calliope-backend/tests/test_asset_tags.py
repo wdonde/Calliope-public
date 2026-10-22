@@ -617,3 +617,44 @@ def test_user_picks_reference_pictures_and_their_order(client):
     again = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": pics[:2]}).json()
     assert "ref_indices" not in again["data"]
     assert len(client.get(f"/api/asset-library/{lib['id']}/render-preview").json()["refs"]) == 2
+
+
+def test_image_prompt_written_from_the_pictures(client, monkeypatch):
+    import calliope.agent.asset_create as ac
+    from calliope.config import settings
+
+    seen = {}
+
+    async def fake_llm(messages, temperature=0.2, role=None):
+        seen["role"] = role
+        seen["images"] = sum(1 for p in messages[1]["content"] if p["type"] == "image_url")
+        return {"pictures": ["Face close-up, front view", "full body, side view, crying"],
+                "style": "Japanese manga, clean ink lines", "clothes": "White blouse, black trousers"}
+
+    monkeypatch.setattr(ac, "generate_structured", fake_llm)
+    client.post("/api/workflows", json={"name": "K2", "kind": "image", "workflow_json": {
+        "10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+        "50": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "A (Input:image)"}},
+        "60": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "B (Input:image)"}},
+        "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}})
+    pid = client.post("/api/projects", json={"title": "P"}).json()["id"]
+    c = client.post(f"/api/projects/{pid}/characters", json={
+        "name": "Kaoru", "appearance": "CHARACTER INFORMATION\nName: Kaoru\nHair: dark blue"}).json()
+    lib = client.post(f"/api/projects/{pid}/character/{c['id']}/to-library").json()
+    pics = []
+    for i in range(2):
+        p = Path(settings.assets_dir) / "uploads" / f"w{i}.png"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (40, 60 + 40 * i), (30, 40, 200)).save(p)
+        pics.append(str(p))
+    client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": pics})
+    r = client.post(f"/api/asset-library/{lib['id']}/prompt-from-pictures").json()
+    lines = r["prompt"].splitlines()
+    assert seen == {"role": "assets", "images": 2}
+    assert lines[0] == ("Character reference sheet of Kaoru, the person in image 1 (face close-up, front view) "
+                        "and image 2 (full body, side view, crying).")
+    assert lines[1] == "Art style: Japanese manga, clean ink lines."
+    assert "clothes (white blouse, black trousers)" in lines[2] and lines[3] == "Colors: hair dark blue."
+    assert "neutral expression" in lines[4]
+    stored = client.get("/api/asset-library").json()[0]["data"]["consistency_prompt"]
+    assert stored != r["prompt"]  # only a draft until saved

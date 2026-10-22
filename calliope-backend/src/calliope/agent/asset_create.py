@@ -405,6 +405,65 @@ def reference_prompt(kind: str, entity: dict[str, Any], n_refs: int, all_gray: b
             "Single object, centered, plain light background, no people, no text." + gray)
 
 
+async def prompt_from_pictures(kind: str, entity: dict[str, Any]) -> dict[str, Any]:
+    """An image prompt written from what the reference pictures show. The vision
+    model only fills short parts (what each picture shows, the art style, the
+    clothes); Calliope puts them into the fixed structure and layout, so the
+    prompt stays short and cannot drift from the pictures."""
+    images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
+    refs, _ = usable_refs(images, kind, max_refs(entity), chosen_refs(entity))
+    if not refs:
+        raise ValueError("No reference pictures to write from.")
+    what = {"character": "person", "location": "place", "item": "object"}[kind]
+    parts: list[dict[str, Any]] = [{"type": "text", "text": f"""These {len(refs)} pictures are references of the {what} "{entity.get('name')}".
+For each picture write which view of the {what} it shows in 3-8 English words: framing and angle only
+(e.g. "face close-up, front view", "full body, side view"). No facial expression, no emotion, no sweat or tears,
+no props or accessories held for the moment.
+Then name the art style the pictures are drawn in (medium, line work, shading; 3-10 words, e.g. "Japanese manga, clean ink lines, screentone shading").
+{'Then the main outfit in 5-15 words: the clothes the person wears in most pictures. Leave out underwear, straps, sunglasses and anything only seen once.' if kind == 'character' else ''}
+Respond ONLY with JSON: {{"pictures": ["..."], "style": "..."{', "clothes": "..."' if kind == 'character' else ''}}}"""}]
+    for i, p in enumerate(refs, 1):
+        url = _data_url(p)
+        if url:
+            parts.append({"type": "text", "text": f"Picture {i}:"})
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+    result = await generate_structured(
+        [{"role": "system", "content": "You describe reference pictures briefly and exactly. Respond with a single valid JSON object."},
+         {"role": "user", "content": parts}], temperature=0.2, role="assets")
+    shows = [str(x).strip().rstrip(".") for x in (result.get("pictures") or []) if str(x).strip()]
+    style = str(result.get("style") or "").strip().rstrip(".")
+    clothes = str(result.get("clothes") or "").strip().rstrip(".")
+    named = [f"image {i} ({shows[i - 1][:1].lower() + shows[i - 1][1:] if i <= len(shows) else 'reference'})"
+             for i in range(1, len(refs) + 1)]
+    roles = named[0] if len(named) == 1 else ", ".join(named[:-1]) + " and " + named[-1]
+    gray = all(is_grayscale(p) for p in images)
+    name = entity.get("name") or f"the {what}"
+    lines = []
+    if kind == "character":
+        colors = _colors(entity)
+        lines = [
+            f"Character reference sheet of {name}, the person in {roles}.",
+            f"Art style: {style}{', rendered in full color' if gray else ''}." if style else "Art style: the same as the reference pictures.",
+            "Keep exactly: face, hairstyle, body shape and proportions, clothes"
+            + (f" ({clothes[:1].lower() + clothes[1:]})" if clothes else "") + ", art style and line work.",
+        ]
+        if colors:
+            lines.append(f"Colors: {'; '.join(colors)}.")
+        lines.append("Layout: front full body, side full body, back full body and a head close-up, same person in every "
+                     "view, neutral standing pose, neutral expression, plain light background, no text, no other people.")
+    elif kind == "location":
+        lines = [f"Reference image of {name}, the place in {roles}.",
+                 f"Art style: {style}." if style else "Art style: the same as the reference pictures.",
+                 "Keep exactly: layout, architecture, materials and light.",
+                 "Show it as a clear establishing view with room for characters, no people, no text."]
+    else:
+        lines = [f"Reference image of {name}, the object in {roles}.",
+                 f"Art style: {style}." if style else "Art style: the same as the reference pictures.",
+                 "Keep exactly: shape, colors, materials and details.",
+                 "Single object, centered, plain light background, no people, no text."]
+    return {"prompt": "\n".join(lines), "refs": refs, "pictures": shows, "style": style}
+
+
 def text_prompt(kind: str, entity: dict[str, Any]) -> str:
     """The detailed template from the description (no pictures)."""
     if kind == "character":

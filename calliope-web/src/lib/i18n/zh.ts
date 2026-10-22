@@ -142,6 +142,8 @@ export const zh: Dict = {
 	'assets.pick.right': 'Move right',
 	'assets.pick.chosen': '{n} reference picture(s) chosen by you, in this order.',
 	'assets.pick.auto': 'Let Calliope choose',
+	'assets.edit.writeFromPictures': 'Write from pictures',
+	'assets.edit.writing': 'Looking at the pictures…',
 	'assets.edit.button': 'Edit',
 	'assets.edit.title': 'Edit {name}',
 	'assets.edit.role': 'Role',

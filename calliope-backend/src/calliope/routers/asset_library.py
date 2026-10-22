@@ -26,6 +26,7 @@ from calliope.agent.asset_create import (
     enqueue_from_images,
     image_prompt,
     max_refs,
+    prompt_from_pictures,
     prompt_is_auto,
     project_context,
 )
@@ -611,3 +612,20 @@ async def library_render_preview(asset_id: int) -> dict[str, Any]:
     stored = (entity.get("consistency_prompt") or "").strip()
     auto = prompt_is_auto(a["kind"], entity)
     return {"prompt": built if auto or not stored else stored, "refs": refs, "auto": auto}
+
+
+@router.post("/asset-library/{asset_id}/prompt-from-pictures")
+async def library_prompt_from_pictures(asset_id: int) -> dict[str, Any]:
+    """Draft the image prompt from what the reference pictures show (not saved)."""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM library_assets WHERE id = ?", (asset_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Library asset not found")
+    a = _out(row)
+    try:
+        return await prompt_from_pictures(a["kind"], {"name": a["name"], **a["data"]})
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

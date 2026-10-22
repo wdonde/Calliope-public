@@ -290,6 +290,12 @@ export const assetLibraryApi = {
 			`/api/projects/${projectId}/character/${characterId}/update-from-library`,
 			{ method: 'POST', body: JSON.stringify({ replace_prompt: replacePrompt }) },
 		),
+	/** Draft the image prompt from what the reference pictures show (vision model; not saved). */
+	promptFromPictures: (assetId: number) =>
+		api<{ prompt: string; refs: string[]; pictures: string[]; style: string }>(
+			`/api/asset-library/${assetId}/prompt-from-pictures`,
+			{ method: 'POST' },
+		),
 	/** Exactly what a render sends: prompt, reference pictures, and whether Calliope wrote the prompt. */
 	renderPreview: (assetId: number) =>
 		api<{ prompt: string; refs: string[]; auto: boolean }>(`/api/asset-library/${assetId}/render-preview`),

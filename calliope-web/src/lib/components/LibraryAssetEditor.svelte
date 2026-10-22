@@ -126,6 +126,26 @@
 		}
 	}
 
+	let writing = $state(false);
+	/** Fill the Image prompt from what the reference pictures show; saving makes it your own prompt. */
+	async function writeFromPictures() {
+		if (!asset) return;
+		writing = true;
+		try {
+			// The pictures as they are in the dialog right now (incl. a new choice of references).
+			await assetLibraryApi.update(asset.id, {
+				source_images: (await picker?.resolvePaths()) ?? [],
+				data: { ref_indices: refIdx, max_refs: fields.max_refs },
+			});
+			const r = await assetLibraryApi.promptFromPictures(asset.id);
+			fields.consistency_prompt = r.prompt;
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		} finally {
+			writing = false;
+		}
+	}
+
 	async function save() {
 		if (!asset || !name.trim()) return;
 		// An empty look is written automatically before saving.
@@ -225,7 +245,14 @@
 					</label>
 				{/each}
 				<label>
-					<span class="field-label">{t('assets.edit.prompt')}</span>
+					<span class="field-label">
+						{t('assets.edit.prompt')}
+						{#if pics.length}
+							<button type="button" class="gen" disabled={writing} onclick={writeFromPictures}>
+								{writing ? t('assets.edit.writing') : t('assets.edit.writeFromPictures')}
+							</button>
+						{/if}
+					</span>
 					<textarea class="field-textarea mono" rows="8" bind:value={fields.consistency_prompt}></textarea>
 					<span class="muted small">
 						{preview?.auto ? t('assets.edit.promptAuto') : t('assets.edit.promptOwn')}
