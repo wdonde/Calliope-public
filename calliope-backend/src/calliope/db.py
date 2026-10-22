@@ -412,6 +412,32 @@ async def migrate_db(db_path: Path) -> None:
     # NULL = laid out automatically (agent/manga_layout.py).
     if "comic_layout" not in project_cols:
         conn.execute("ALTER TABLE projects ADD COLUMN comic_layout TEXT")
+    # Asset tags (JSON list of "key:value" or plain labels, see asset_tags.py)
+    # and an item category, so assets can be filtered and found by alias.
+    for table in ("characters", "locations", "items"):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if "tags" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN tags TEXT")
+    item_cols = {r[1] for r in conn.execute("PRAGMA table_info(items)").fetchall()}
+    if "category" not in item_cols:
+        conn.execute("ALTER TABLE items ADD COLUMN category TEXT")
+    # Assets kept across projects: a copy of a character/location/item with its image.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS library_assets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL CHECK (kind IN ('character', 'location', 'item')),
+            name TEXT NOT NULL,
+            category TEXT,
+            tags TEXT,
+            data_json TEXT NOT NULL DEFAULT '{}',
+            image_path TEXT,
+            source_project_id INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     # One comic panel per clip: its image prompt, references, speech bubbles.
     conn.execute(
         """
@@ -476,7 +502,14 @@ async def migrate_db(db_path: Path) -> None:
 
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return {key: row[key] for key in row.keys()}
+    out = {key: row[key] for key in row.keys()}
+    # Asset tags are stored as JSON text; callers always see a list.
+    if "tags" in out:
+        try:
+            out["tags"] = json.loads(out["tags"]) if out["tags"] else []
+        except (TypeError, ValueError):
+            out["tags"] = []
+    return out
 
 
 def ensure_default_clip(conn: sqlite3.Connection, scene_id: int, project_id: int) -> None:

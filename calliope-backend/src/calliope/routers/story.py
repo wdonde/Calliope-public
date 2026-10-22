@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from calliope.activity import tracked
 from calliope.agent.idea_guard import LONG_IDEA_CHARS, LongSourceText, refuse_long_idea
+from calliope.agent.asset_tags import name_tags, normalize_category, tags_json
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
     source_outline_block,
@@ -352,17 +353,19 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                             "appearance": appearance,
                             "personality": entity.get("personality", ""),
                         }
+                        tags = tags_json(name_tags(row_seed["name"]) + list(entity.get("tags") or []))
                         # Seed with the published sheet template so Assets shows a real prompt, not a hidden blob.
                         conn.execute(
                             """
                             INSERT INTO characters
-                            (project_id, name, role, age, appearance, personality, consistency_prompt)
-                            VALUES (:project_id, :name, :role, :age, :appearance, :personality, :consistency_prompt)
+                            (project_id, name, role, age, appearance, personality, consistency_prompt, tags)
+                            VALUES (:project_id, :name, :role, :age, :appearance, :personality, :consistency_prompt, :tags)
                             """,
                             {
                                 "project_id": project_id,
                                 **row_seed,
                                 "consistency_prompt": character_sheet_prompt(row_seed),
+                                "tags": tags,
                             },
                         )
                         seeded["characters"] += 1
@@ -371,13 +374,14 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                         loc_seed = {"name": entity.get("name", ""), "description": description}
                         conn.execute(
                             """
-                            INSERT INTO locations (project_id, name, description, consistency_prompt)
-                            VALUES (:project_id, :name, :description, :consistency_prompt)
+                            INSERT INTO locations (project_id, name, description, consistency_prompt, tags)
+                            VALUES (:project_id, :name, :description, :consistency_prompt, :tags)
                             """,
                             {
                                 "project_id": project_id,
                                 **loc_seed,
                                 "consistency_prompt": location_reference_prompt(loc_seed),
+                                "tags": tags_json(entity.get("tags")),
                             },
                         )
                         seeded["locations"] += 1
@@ -386,13 +390,15 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                         item_seed = {"name": entity.get("name", ""), "description": description}
                         conn.execute(
                             """
-                            INSERT INTO items (project_id, name, description, consistency_prompt)
-                            VALUES (:project_id, :name, :description, :consistency_prompt)
+                            INSERT INTO items (project_id, name, description, consistency_prompt, tags, category)
+                            VALUES (:project_id, :name, :description, :consistency_prompt, :tags, :category)
                             """,
                             {
                                 "project_id": project_id,
                                 **item_seed,
                                 "consistency_prompt": item_reference_prompt(item_seed),
+                                "tags": tags_json(entity.get("tags")),
+                                "category": normalize_category(entity.get("category")),
                             },
                         )
                         seeded["items"] += 1
@@ -569,7 +575,7 @@ async def update_beat(project_id: int, beat_id: int, payload: BeatUpdate) -> dic
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Beat not found")
-        data = {k: v for k, v in payload.model_dump().items() if v is not None}
+        data = _asset_fields({k: v for k, v in payload.model_dump().items() if v is not None})
         if data:
             fields = ", ".join(f"{k} = :{k}" for k in data)
             data["id"] = beat_id
@@ -599,6 +605,15 @@ async def delete_beat(project_id: int, beat_id: int) -> dict[str, bool]:
         conn.close()
 
 
+def _asset_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """Tags/category from an update payload in their stored form."""
+    if "tags" in data:
+        data["tags"] = tags_json(data["tags"])
+    if "category" in data:
+        data["category"] = normalize_category(data["category"])
+    return data
+
+
 # --- Characters CRUD ---
 
 
@@ -619,8 +634,8 @@ async def create_character(project_id: int, payload: CharacterCreate) -> dict[st
         cur = conn.execute(
             """
             INSERT INTO characters
-            (project_id, name, role, age, appearance, personality, consistency_prompt)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (project_id, name, role, age, appearance, personality, consistency_prompt, tags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
@@ -630,6 +645,7 @@ async def create_character(project_id: int, payload: CharacterCreate) -> dict[st
                 payload.appearance,
                 payload.personality,
                 consistency,
+                tags_json(name_tags(payload.name) + (payload.tags or [])),
             ),
         )
         _touch_project(conn, project_id)
@@ -652,7 +668,7 @@ async def update_character(
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Character not found")
-        data = {k: v for k, v in payload.model_dump().items() if v is not None}
+        data = _asset_fields({k: v for k, v in payload.model_dump().items() if v is not None})
         if data:
             fields = ", ".join(f"{k} = :{k}" for k in data)
             data["id"] = character_id
@@ -695,10 +711,10 @@ async def create_location(project_id: int, payload: LocationCreate) -> dict[str,
         )
         cur = conn.execute(
             """
-            INSERT INTO locations (project_id, name, description, consistency_prompt)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO locations (project_id, name, description, consistency_prompt, tags)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (project_id, payload.name, payload.description, consistency),
+            (project_id, payload.name, payload.description, consistency, tags_json(payload.tags)),
         )
         _touch_project(conn, project_id)
         conn.commit()
@@ -720,7 +736,7 @@ async def update_location(
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Location not found")
-        data = {k: v for k, v in payload.model_dump().items() if v is not None}
+        data = _asset_fields({k: v for k, v in payload.model_dump().items() if v is not None})
         if data:
             fields = ", ".join(f"{k} = :{k}" for k in data)
             data["id"] = location_id
@@ -763,10 +779,11 @@ async def create_item(project_id: int, payload: ItemCreate) -> dict[str, Any]:
         )
         cur = conn.execute(
             """
-            INSERT INTO items (project_id, name, description, consistency_prompt)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO items (project_id, name, description, consistency_prompt, tags, category)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (project_id, payload.name, payload.description, consistency),
+            (project_id, payload.name, payload.description, consistency, tags_json(payload.tags),
+             normalize_category(payload.category)),
         )
         _touch_project(conn, project_id)
         conn.commit()
@@ -788,7 +805,7 @@ async def update_item(
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Item not found")
-        data = {k: v for k, v in payload.model_dump().items() if v is not None}
+        data = _asset_fields({k: v for k, v in payload.model_dump().items() if v is not None})
         if data:
             fields = ", ".join(f"{k} = :{k}" for k in data)
             data["id"] = item_id

@@ -160,6 +160,8 @@ export interface Character {
 	portrait_path: string | null;
 	sheet_path: string | null;
 	consistency_prompt: string | null;
+	/** "key:value" or plain labels, e.g. "alias:Ripper Eddy". */
+	tags: string[];
 }
 
 export interface Location {
@@ -168,6 +170,7 @@ export interface Location {
 	description: string | null;
 	reference_image_path: string | null;
 	consistency_prompt: string | null;
+	tags: string[];
 }
 
 export interface Item {
@@ -176,7 +179,44 @@ export interface Item {
 	description: string | null;
 	reference_image_path: string | null;
 	consistency_prompt: string | null;
+	tags: string[];
+	/** weapon, vehicle, device, … (free text). */
+	category: string | null;
 }
+
+export type AssetKind = 'character' | 'location' | 'item';
+
+/** A character/location/item kept across projects (a copy with its images). */
+export interface LibraryAsset {
+	id: number;
+	kind: AssetKind;
+	name: string;
+	category: string | null;
+	tags: string[];
+	data: Record<string, string | null>;
+	image_path: string | null;
+	source_project_id: number | null;
+	created_at: string;
+}
+
+export const assetLibraryApi = {
+	list: (params: { kind?: AssetKind; q?: string; tag?: string } = {}) => {
+		const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
+		return api<LibraryAsset[]>(`/api/asset-library${qs.size ? `?${qs}` : ''}`);
+	},
+	save: (projectId: number, kind: AssetKind, entityId: number) =>
+		api<LibraryAsset>(`/api/projects/${projectId}/${kind}/${entityId}/to-library`, { method: 'POST' }),
+	addToProject: (assetId: number, projectId: number) =>
+		api<Record<string, unknown>>(`/api/asset-library/${assetId}/to-project`, {
+			method: 'POST',
+			body: JSON.stringify({ project_id: projectId }),
+		}),
+	update: (assetId: number, payload: { name?: string; category?: string | null; tags?: string[] }) =>
+		api<LibraryAsset>(`/api/asset-library/${assetId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+	remove: (assetId: number) => api<{ ok: boolean }>(`/api/asset-library/${assetId}`, { method: 'DELETE' }),
+	suggestTags: (projectId: number) =>
+		api<Record<string, number>>(`/api/projects/${projectId}/assets/suggest-tags`, { method: 'POST' }),
+};
 
 export interface StoryData {
 	project: Project;

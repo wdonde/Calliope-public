@@ -5,6 +5,7 @@
 	import { t } from '$lib/i18n.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import AttachToProject from '$lib/components/AttachToProject.svelte';
+	import LibraryAssets from '$lib/components/LibraryAssets.svelte';
 	import ImageLightbox from '$lib/components/ImageLightbox.svelte';
 	import SafeMedia from '$lib/components/SafeMedia.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -14,6 +15,8 @@
 	import { toast } from '$lib/toast';
 
 	const client = useQueryClient();
+	// Saved project assets (characters, locations, items) or loose Playground media.
+	let section = $state<'assets' | 'media'>('assets');
 
 	const mediaQuery = createQuery({
 		queryKey: ['library-media'],
@@ -137,6 +140,15 @@
 </AppHeader>
 
 <main class="container">
+	<div class="sections" role="tablist">
+		<button type="button" role="tab" class:active={section === 'assets'} aria-selected={section === 'assets'}
+			onclick={() => (section = 'assets')}>{t('library.sectionAssets')}</button>
+		<button type="button" role="tab" class:active={section === 'media'} aria-selected={section === 'media'}
+			onclick={() => (section = 'media')}>{t('library.sectionMedia')}</button>
+	</div>
+	{#if section === 'assets'}
+		<LibraryAssets />
+	{:else}
 	<div class="toolbar">
 		<div class="filters" role="tablist" aria-label={t('library.filterLabel')}>
 			<button
@@ -237,6 +249,7 @@
 			</div>
 		{/if}
 	{/if}
+	{/if}
 </main>
 
 {#if preview}
@@ -286,6 +299,25 @@
 {/if}
 
 <style>
+	.sections {
+		display: flex;
+		gap: 4px;
+		border-bottom: 1px solid var(--border);
+		margin-bottom: 16px;
+	}
+	.sections button {
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		padding: 8px 14px;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-weight: 600;
+	}
+	.sections button.active {
+		color: var(--text-primary, inherit);
+		border-bottom-color: var(--accent);
+	}
 	.toolbar {
 		display: flex;
 		align-items: center;

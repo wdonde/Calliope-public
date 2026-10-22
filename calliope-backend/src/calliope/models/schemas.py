@@ -115,6 +115,7 @@ class CharacterCreate(BaseModel):
     appearance: str | None = None
     personality: str | None = None
     consistency_prompt: str | None = None
+    tags: list[str] | None = None
 
 
 class CharacterUpdate(BaseModel):
@@ -126,12 +127,14 @@ class CharacterUpdate(BaseModel):
     consistency_prompt: str | None = None
     portrait_path: str | None = None
     sheet_path: str | None = None
+    tags: list[str] | None = None
 
 
 class LocationCreate(BaseModel):
     name: str = Field(..., min_length=1)
     description: str | None = None
     consistency_prompt: str | None = None
+    tags: list[str] | None = None
 
 
 class LocationUpdate(BaseModel):
@@ -139,12 +142,15 @@ class LocationUpdate(BaseModel):
     description: str | None = None
     consistency_prompt: str | None = None
     reference_image_path: str | None = None
+    tags: list[str] | None = None
 
 
 class ItemCreate(BaseModel):
     name: str = Field(..., min_length=1)
     description: str | None = None
     consistency_prompt: str | None = None
+    tags: list[str] | None = None
+    category: str | None = None
 
 
 class ItemUpdate(BaseModel):
@@ -152,6 +158,8 @@ class ItemUpdate(BaseModel):
     description: str | None = None
     consistency_prompt: str | None = None
     reference_image_path: str | None = None
+    tags: list[str] | None = None
+    category: str | None = None
 
 
 class SceneCreate(BaseModel):

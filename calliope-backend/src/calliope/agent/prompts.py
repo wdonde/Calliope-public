@@ -165,24 +165,29 @@ Tone: {tone or "cinematic, atmospheric"}
       "role": "protagonist|antagonist|supporting",
       "age": "approximate age",
       "appearance": "fixed look for image generation: age, build, face, hair color and style, one distinctive mark, and ONE default outfit incl. headwear -- specific enough that no two characters could be confused",
-      "personality": "concise personality traits"
+      "personality": "concise personality traits",
+      "tags": ["alias:every other name or nickname the story uses", "faction:group or side, if any"]
     }}
   ],
   "locations": [
     {{
       "name": "Location name",
-      "description": "concise visual description for image generation"
+      "description": "concise visual description for image generation",
+      "tags": ["type:interior|exterior|landscape|vehicle interior", "alias:other names, if any"]
     }}
   ],
   "items": [
     {{
       "name": "Item name",
-      "description": "concise visual description for image generation"
+      "category": "weapon|vehicle|device|furniture|clothing|tool|creature|prop",
+      "description": "concise visual description for image generation",
+      "tags": ["alias:other names, if any"]
     }}
   ]
 }}
 
 Keep descriptions visual and concrete. Characters, locations and items should be reusable across scenes.
+Tags are short 'key:value' labels in English keys (alias, faction, type); leave out a tag you have nothing for.
 FINAL CHECK before responding: beats.length == {beat_n}. If not, fix it."""
 
 
@@ -262,18 +267,22 @@ Tone: {tone or "cinematic, atmospheric"}
       "role": "protagonist|antagonist|supporting",
       "age": "approximate age",
       "appearance": "fixed look for image generation: age, build, face, hair color and style, one distinctive mark, and ONE default outfit incl. headwear -- specific enough that no two characters could be confused",
-      "personality": "concise personality traits"
+      "personality": "concise personality traits",
+      "tags": ["alias:every other name or nickname the story uses", "faction:group or side, if any"]
     }}
   ],
   "locations": [
-    {{"name": "Location name", "description": "concise visual description for image generation"}}
+    {{"name": "Location name", "description": "concise visual description for image generation",
+      "tags": ["type:interior|exterior|landscape|vehicle interior", "alias:other names, if any"]}}
   ],
   "items": [
-    {{"name": "Item name", "description": "concise visual description for image generation"}}
+    {{"name": "Item name", "category": "weapon|vehicle|device|furniture|clothing|tool|creature|prop",
+      "description": "concise visual description for image generation", "tags": ["alias:other names, if any"]}}
   ]
 }}
 
 Keep descriptions visual and concrete. Characters, locations and items should be reusable across scenes.
+Tags are short 'key:value' labels in English keys (alias, faction, type); leave out a tag you have nothing for.
 FINAL CHECK before responding: beats.length == {chunk_beats}. If not, fix it."""
 
 

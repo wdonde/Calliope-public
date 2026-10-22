@@ -16,6 +16,8 @@
 	} from '$lib/api';
 	import ComfyDynamicForm from '$lib/components/ComfyDynamicForm.svelte';
 	import AssetThumb from '$lib/components/AssetThumb.svelte';
+	import AssetTags from '$lib/components/AssetTags.svelte';
+	import LibraryPicker from '$lib/components/LibraryPicker.svelte';
 	import ImageLightbox from '$lib/components/ImageLightbox.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -34,6 +36,7 @@
 		itemReferenceTemplate,
 		locationReferenceTemplate,
 	} from '$lib/promptTemplates';
+	import { assetLibraryApi, type AssetKind } from '$lib/api';
 	import { toast } from '$lib/toast';
 	import { t } from '$lib/i18n.svelte';
 
@@ -44,6 +47,68 @@
 	let { projectId }: Props = $props();
 	const client = useQueryClient();
 	let tab = $state<'characters' | 'locations' | 'items'>('characters');
+
+	// ── search, tag filter, library ──
+	let search = $state('');
+	let activeTag = $state<string | null>(null);
+	let pickerOpen = $state(false);
+	let suggesting = $state(false);
+	const KIND_OF_TAB: Record<typeof tab, AssetKind> = { characters: 'character', locations: 'location', items: 'item' };
+
+	type Taggable = { name: string; tags?: string[]; category?: string | null };
+	function shown<T extends Taggable>(list: T[], text: (e: T) => string): T[] {
+		const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+		return list.filter((e) => {
+			const tags = e.tags ?? [];
+			if (activeTag) {
+				const ok = activeTag.startsWith('category:')
+					? `category:${e.category ?? ''}` === activeTag
+					: tags.includes(activeTag);
+				if (!ok) return false;
+			}
+			const hay = [e.name, e.category ?? '', ...tags, text(e)].join(' ').toLowerCase();
+			return words.every((w) => hay.includes(w));
+		});
+	}
+
+	function toggleTag(tag: string) {
+		activeTag = activeTag === tag ? null : tag;
+	}
+
+	async function saveTags(kind: AssetKind, id: number, fields: { tags: string[]; category?: string | null }) {
+		try {
+			if (kind === 'character') await projects.updateCharacter(projectId, id, fields);
+			else if (kind === 'location') await projects.updateLocation(projectId, id, fields);
+			else await projects.updateItem(projectId, id, fields);
+			await client.invalidateQueries({ queryKey: ['assets'] });
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		}
+	}
+
+	async function toLibrary(kind: AssetKind, id: number, name: string) {
+		try {
+			await assetLibraryApi.save(projectId, kind, id);
+			toast.success(t('assets.savedToLibrary', { name }));
+			await client.invalidateQueries({ queryKey: ['asset-library'] });
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		}
+	}
+
+	async function suggestTags() {
+		suggesting = true;
+		try {
+			const r = await assetLibraryApi.suggestTags(projectId);
+			const n = Object.values(r).reduce((a, b) => a + b, 0);
+			toast.success(t('assets.tagsSuggested', { n }));
+			await client.invalidateQueries({ queryKey: ['assets'] });
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		} finally {
+			suggesting = false;
+		}
+	}
 	let drafts = $state<Record<string, string>>({});
 	let savingKey = $state<string | null>(null);
 	let sheetWorkflowId = $state<number | ''>('');
@@ -84,6 +149,18 @@
 			queryFn: () => projects.getAssets(projectId),
 		})),
 	);
+	const shownCharacters = $derived(
+		shown($assetsQuery.data?.characters ?? [], (c) => `${c.role ?? ''} ${c.appearance ?? ''} ${c.personality ?? ''}`),
+	);
+	const shownLocations = $derived(shown($assetsQuery.data?.locations ?? [], (l) => l.description ?? ''));
+	// Items grouped by category (uncategorised last), then by name.
+	const shownItems = $derived(
+		shown($assetsQuery.data?.items ?? [], (i) => i.description ?? '').sort(
+			(a, b) =>
+				(a.category ?? '~').localeCompare(b.category ?? '~') || a.name.localeCompare(b.name),
+		),
+	);
+	const filtering = $derived(Boolean(search.trim() || activeTag));
 
 	const workflowsQuery = createQuery({
 		queryKey: ['workflows'],
@@ -638,6 +715,22 @@
 	</div>
 </div>
 
+<div class="asset-toolbar">
+	<input class="field-input" type="search" placeholder={t('assets.searchPlaceholder')} bind:value={search} />
+	{#if activeTag}
+		<button type="button" class="tag-filter" onclick={() => (activeTag = null)}>{activeTag} ×</button>
+	{/if}
+	<Button size="sm" variant="secondary" loading={suggesting} onclick={suggestTags}>{t('assets.suggestTags')}</Button>
+	<Button size="sm" variant="secondary" onclick={() => (pickerOpen = true)}>{t('assets.fromLibrary')}</Button>
+</div>
+
+<LibraryPicker
+	bind:open={pickerOpen}
+	{projectId}
+	kind={KIND_OF_TAB[tab]}
+	onadded={() => client.invalidateQueries({ queryKey: ['assets'] })}
+/>
+
 {#if imageWorkflows.length === 0}
 	<p class="hint-warn">
 		{t('assets.noWorkflowPre')} <a href="/settings?tab=workflows">{t('assets.noWorkflowLink')}</a>
@@ -783,7 +876,8 @@
 			</EmptyState>
 		{:else}
 			<div class="grid">
-				{#each $assetsQuery.data.characters as char (char.id)}
+				{#if filtering && shownCharacters.length === 0}<p class="muted small">{t('assets.noMatches')}</p>{/if}
+				{#each shownCharacters as char (char.id)}
 					{@const key = charKey(char.id)}
 					{@const job = entityJob(jobs, 'character_id', char.id)}
 					{@const jstate = jobStateOf(job)}
@@ -867,6 +961,14 @@
 									<span class="muted small">{char.age}</span>
 								{/if}
 							</div>
+							<AssetTags
+								tags={char.tags ?? []}
+								
+								active={activeTag}
+								onfilter={toggleTag}
+								onsave={(f) => saveTags('character', char.id, f)}
+								ontolibrary={() => toLibrary('character', char.id, char.name)}
+							/>
 							{#if char.appearance}
 								<p class="facts" title={char.appearance}>
 									<span class="k">{t('assets.appearance')}</span> {char.appearance}
@@ -974,7 +1076,8 @@
 			</EmptyState>
 		{:else}
 			<div class="grid">
-				{#each $assetsQuery.data.locations as loc (loc.id)}
+				{#if filtering && shownLocations.length === 0}<p class="muted small">{t('assets.noMatches')}</p>{/if}
+				{#each shownLocations as loc (loc.id)}
 					{@const key = locKey(loc.id)}
 					{@const job = entityJob(jobs, 'location_id', loc.id)}
 					{@const jstate = jobStateOf(job)}
@@ -1048,6 +1151,14 @@
 							<div class="title-row">
 								<strong>{loc.name}</strong>
 							</div>
+							<AssetTags
+								tags={loc.tags ?? []}
+								
+								active={activeTag}
+								onfilter={toggleTag}
+								onsave={(f) => saveTags('location', loc.id, f)}
+								ontolibrary={() => toLibrary('location', loc.id, loc.name)}
+							/>
 							{#if loc.description}
 								<p class="facts" title={loc.description}>
 									<span class="k">{t('assets.description')}</span> {loc.description}
@@ -1150,7 +1261,8 @@
 			</EmptyState>
 		{:else}
 			<div class="grid">
-				{#each $assetsQuery.data.items as item (item.id)}
+				{#if filtering && shownItems.length === 0}<p class="muted small">{t('assets.noMatches')}</p>{/if}
+				{#each shownItems as item (item.id)}
 					{@const key = itemKey(item.id)}
 					{@const job = entityJob(jobs, 'item_id', item.id)}
 					{@const jstate = jobStateOf(job)}
@@ -1224,6 +1336,14 @@
 							<div class="title-row">
 								<strong>{item.name}</strong>
 							</div>
+							<AssetTags
+								tags={item.tags ?? []}
+								category={item.category} withCategory
+								active={activeTag}
+								onfilter={toggleTag}
+								onsave={(f) => saveTags('item', item.id, f)}
+								ontolibrary={() => toLibrary('item', item.id, item.name)}
+							/>
 							{#if item.description}
 								<p class="facts" title={item.description}>
 									<span class="k">{t('assets.description')}</span> {item.description}
@@ -1426,6 +1546,27 @@
 	.wf-field .field-select {
 		width: 100%;
 		max-width: 100%;
+	}
+	.asset-toolbar {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		flex-wrap: wrap;
+		margin: 0 0 12px;
+	}
+	.asset-toolbar input {
+		flex: 1;
+		min-width: 200px;
+		max-width: 420px;
+	}
+	.tag-filter {
+		border: 1px solid var(--accent);
+		background: var(--accent);
+		color: #fff;
+		border-radius: 999px;
+		padding: 2px 10px;
+		font-size: 12px;
+		cursor: pointer;
 	}
 	.grid {
 		display: grid;

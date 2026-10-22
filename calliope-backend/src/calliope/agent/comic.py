@@ -27,7 +27,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 from calliope.activity import tracked
-from calliope.agent import manga_layout
+from calliope.agent import asset_tags, manga_layout
 from calliope.agent.llm import LLMClient
 from calliope.agent.prompts import guess_language
 from calliope.comfyui.parser import parse_dynamic_inputs
@@ -118,7 +118,8 @@ def _named_in(desc: str, name: str) -> bool:
 def _panel_characters(desc: str, scene_chars: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
     """(characters in focus with a sheet -- at most 2 --, names of everyone else in the shot).
     With nobody named, the scene's only character is in focus."""
-    named = [c for c in scene_chars if _named_in(desc, c["name"])]
+    named = [c for c in scene_chars
+             if any(_named_in(desc, n) for n in [c["name"], *asset_tags.aliases(c)])]
     if not named and len(scene_chars) == 1:
         named = scene_chars
     focus = [c for c in named if c.get("sheet_path") and Path(c["sheet_path"]).exists()][:2]
