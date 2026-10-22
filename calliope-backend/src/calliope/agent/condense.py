@@ -22,6 +22,9 @@ CHUNK_CHARS = 6000
 # Leaves room under LONG_IDEA_CHARS so a user can still add a line by hand.
 TARGET_CHARS = 1600
 DURATIONS = ("30 seconds", "1 minute", "2 minutes", "5 minutes", "10 minutes")
+# What the model may pick: longer films mean hours of rendering per minute, so
+# 5 and 10 minutes stay a deliberate choice in the Story settings.
+AUTO_DURATIONS = DURATIONS[:3]
 
 Progress = Callable[[str], Awaitable[None]]
 
@@ -84,12 +87,13 @@ async def condense_source(
             "- title: Titel der Geschichte\n"
             '- genre: 1-3 Genres auf Englisch, z. B. "Sci-Fi, Action"\n'
             '- tone: Stimmung und Bildstil auf Englisch in wenigen Worten, z. B. "Cinematic, dark, atmospheric"\n'
-            f"- target_duration: genau einer von {', '.join(DURATIONS)}. Es wird ein KURZES Video, "
-            "meist \"1 minute\" oder \"2 minutes\"; längere Werte nur für sehr umfangreiche Romane.\n"
-            f"- idea: Kurzfassung der GANZEN Handlung auf {language}, höchstens {TARGET_CHARS} Zeichen, streng "
-            "chronologisch: jeder Abschnitt bekommt mindestens einen Satz. Spannende Ereignisse (Konflikte, "
-            "Gefahr, Wendepunkte, Überraschungen) haben Vorrang vor Erklärungen. Hauptfiguren mit Namen und "
-            "kurzem Aussehen, Schauplätze, Ende. Keine allgemeinen Schlusssätze.\n"
+            f"- target_duration: genau einer von {', '.join(AUTO_DURATIONS)} -- es wird ein KURZES Video, "
+            "auch bei langen Romanen.\n"
+            f"- idea: Kurzfassung der GANZEN Handlung auf {language}, {TARGET_CHARS - 600} bis {TARGET_CHARS} "
+            "Zeichen, streng chronologisch: jeder Abschnitt bekommt mindestens einen Satz. Spannende Ereignisse "
+            "(Konflikte, Gefahr, Wendepunkte, Überraschungen) haben Vorrang vor Erklärungen. Hauptfiguren und "
+            "wichtige Nebenfiguren mit Namen und kurzem Aussehen, Schauplätze. Das Ende genau wiedergeben, "
+            "einschließlich letzter Wendung, Andeutung oder offener Frage. Keine allgemeinen Schlusssätze.\n"
             'Antwort: {"title": "...", "genre": "...", "tone": "...", "target_duration": "...", "idea": "..."}\n\n'
             "ZUSAMMENFASSUNGEN:\n" + numbered
         ))
@@ -117,7 +121,7 @@ async def condense_source(
             "title": str(fields.get("title") or "").strip(),
             "genre": str(fields.get("genre") or "").strip(),
             "tone": str(fields.get("tone") or "").strip(),
-            "target_duration": duration if duration in DURATIONS else "1 minute",
+            "target_duration": duration if duration in AUTO_DURATIONS else "1 minute",
             "idea": idea,
         }
     finally:
