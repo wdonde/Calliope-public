@@ -358,7 +358,35 @@
 		{ key: 'script', labelKey: 'settings.roleScript', hintKey: 'settings.roleScriptHint' },
 		{ key: 'assets', labelKey: 'settings.roleAssets', hintKey: 'settings.roleAssetsHint' },
 		{ key: 'video', labelKey: 'settings.roleVideo', hintKey: 'settings.roleVideoHint' },
+		{ key: 'writer', labelKey: 'settings.roleWriter', hintKey: 'settings.roleWriterHint' },
 	];
+
+	// Model families that worked (or failed) for each role in local tests.
+	type Rec = { model: string; tag: 'best' | 'ok' | 'avoid'; why: string };
+	const TOOLS_AGENT: Rec[] = [
+		{ model: 'gpt-oss', tag: 'best', why: 'reliable tool calls' },
+		{ model: 'Qwen3 / Qwen3-VL', tag: 'ok', why: 'tool calls, faster' },
+		{ model: 'Mistral Small', tag: 'avoid', why: 'announces tool calls without making them' },
+	];
+	const ROLE_RECOMMEND: Record<string, Rec[]> = {
+		main: TOOLS_AGENT,
+		planner: TOOLS_AGENT,
+		story: TOOLS_AGENT,
+		script: TOOLS_AGENT,
+		assets: [
+			{ model: 'Qwen3-VL', tag: 'best', why: 'vision + tool calls' },
+			{ model: 'gpt-oss', tag: 'ok', why: 'tool calls, no vision' },
+		],
+		video: [
+			{ model: 'Qwen3-VL', tag: 'best', why: 'vision, fast prompt rewrites' },
+			{ model: 'gpt-oss', tag: 'ok', why: 'no vision' },
+		],
+		writer: [
+			{ model: 'Mistral Small', tag: 'best', why: 'faithful long-form writing, strong German' },
+			{ model: 'gpt-oss', tag: 'ok', why: 'solid, sometimes returns empty long texts' },
+			{ model: 'Qwen3-VL 8B', tag: 'ok', why: 'fast, weaker prose' },
+		],
+	};
 
 	function assignmentValue(s: Settings, key: string): string {
 		if (draft.agent_llm_assignments !== undefined) {
@@ -368,9 +396,11 @@
 		return s.agent_llm_assignments?.[key] ?? '';
 	}
 
-	function setAssignment(key: string, value: string) {
+	function setAssignment(s: Settings, key: string, value: string) {
+		// Start from the saved map: an empty base would save only this role and
+		// reset every other role to "Currently active".
 		const current = draft.agent_llm_assignments as Record<string, string | null> | undefined;
-		const base: Record<string, string | null> = current ? { ...current } : {};
+		const base: Record<string, string | null> = { ...(current ?? s.agent_llm_assignments ?? {}) };
 		base[key] = value === '' ? null : value;
 		draft.agent_llm_assignments = base;
 	}
@@ -903,7 +933,7 @@
 							<select
 								class="field-input"
 								value={assignmentValue(s, role.key)}
-								onchange={(e) => setAssignment(role.key, e.currentTarget.value)}
+								onchange={(e) => setAssignment(s, role.key, e.currentTarget.value)}
 							>
 								<option value="">{t('settings.useActiveLlm')}</option>
 								{#each workingProfiles(s) as p (p.id)}
@@ -911,6 +941,15 @@
 								{/each}
 							</select>
 							<p class="field-hint">{t(role.hintKey)}</p>
+							<div class="recommend">
+								<span class="rec-label">Recommended</span>
+								{#each ROLE_RECOMMEND[role.key] ?? [] as r (r.model)}
+									<span class="rec-chip rec-{r.tag}" title={r.why}>
+										{#if r.tag === 'avoid'}avoid:{/if}<span class="rec-model">{r.model}</span>
+										<span class="rec-why">{r.why}</span>
+									</span>
+								{/each}
+							</div>
 						</label>
 					{/each}
 				</section>
@@ -1170,6 +1209,46 @@
 />
 
 <style>
+	.recommend {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		margin-top: 6px;
+		font-size: 12px;
+	}
+	.rec-label {
+		color: var(--text-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		font-size: 11px;
+	}
+	.rec-chip {
+		display: inline-flex;
+		gap: 6px;
+		align-items: baseline;
+		padding: 2px 8px;
+		border-radius: 999px;
+		border: 1px solid var(--border, #3f3f46);
+		color: var(--text-secondary);
+	}
+	.rec-best {
+		border-color: var(--accent);
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+	.rec-avoid {
+		border-color: var(--danger, #ef4444);
+		color: var(--danger, #ef4444);
+	}
+	.rec-avoid .rec-model {
+		text-decoration: line-through;
+	}
+	.rec-why {
+		font-weight: 400;
+		color: var(--text-muted);
+	}
+
 	.shell {
 		min-height: 100vh;
 		display: flex;

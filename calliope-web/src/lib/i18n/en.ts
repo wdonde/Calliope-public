@@ -1224,6 +1224,8 @@ export const en = {
 	'settings.roleAssetsHint': 'Produces character, location, and item reference images.',
 	'settings.roleVideo': 'Video',
 	'settings.roleVideoHint': 'Rewrites the prompts used for video generation.',
+	'settings.roleWriter': 'Writer',
+	'settings.roleWriterHint': 'Writes long text without driving an agent: storyline beats, characters and locations, novel summaries, skill drafts. Unset = the active LLM.',
 	// --- H3 motion-context chain ---
 	'chain.latentAuto': 'Filled automatically from the clip chain',
 	'chain.aria': 'Motion-context chain',

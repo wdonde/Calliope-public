@@ -119,7 +119,9 @@ DEFAULT_AGENT_HARDENING_PROMPT = """You are operating under additional operator-
 # Agent roles that can be pinned to a specific LLM profile. Values live in
 # Settings.agent_llm_assignments (role -> profile id or None). A missing or
 # None entry means "use the Active LLM".
-AGENT_LLM_ROLES: tuple[str, ...] = ("main", "planner", "story", "script", "assets", "video")
+# "writer" drives no agent: it writes long text (storyline beats, novel
+# summaries, skill drafts), so a strong writer without reliable tool calls fits.
+AGENT_LLM_ROLES: tuple[str, ...] = ("main", "planner", "story", "script", "assets", "video", "writer")
 
 
 def is_ephemeral_path(path: Path | str | None) -> bool:

@@ -1224,6 +1224,8 @@ export const ko: Dict = {
 	'settings.roleAssetsHint': '캐릭터, 장소, 아이템 참조 이미지를 생성합니다.',
 	'settings.roleVideo': '비디오',
 	'settings.roleVideoHint': '비디오 생성에 사용할 프롬프트를 재작성합니다.',
+	'settings.roleWriter': 'Writer',
+	'settings.roleWriterHint': 'Writes long text without driving an agent: storyline beats, characters and locations, novel summaries, skill drafts. Unset = the active LLM.',
 	// --- H3 motion-context chain ---
 	'chain.latentAuto': '클립 체인에서 자동으로 채워짐',
 	'chain.aria': '모션 컨텍스트 체인',

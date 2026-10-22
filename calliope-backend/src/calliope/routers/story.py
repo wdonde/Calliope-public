@@ -76,7 +76,7 @@ async def _request_beats_chunk(
     temperature: float = 0.7,
 ) -> list[dict[str, Any]]:
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    result = await generate_structured(messages, temperature=temperature)
+    result = await generate_structured(messages, temperature=temperature, role="writer")
     beats = result.get("beats") or []
     if len(beats) < want:
         # Retry only this chunk — never the whole story.
@@ -93,6 +93,7 @@ async def _request_beats_chunk(
                 },
             ],
             temperature=0.4,
+            role="writer",
         )
         beats = retry.get("beats") or []
     return beats
@@ -123,7 +124,7 @@ async def _iter_story_chunks(
             tone=project["tone"],
             target_duration=project["target_duration"],
         )
-        result = await generate_structured(messages, temperature=0.7)
+        result = await generate_structured(messages, temperature=0.7, role="writer")
         beats_out = result.get("beats") or []
         if len(beats_out) < required_beats:
             await event_bus.publish(
@@ -153,7 +154,7 @@ async def _iter_story_chunks(
                     ),
                 },
             ]
-            result = await generate_structured(repair, temperature=0.4)
+            result = await generate_structured(repair, temperature=0.4, role="writer")
             beats_out = result.get("beats") or []
         yield {
             "title": result.get("title"),
@@ -180,7 +181,7 @@ async def _iter_story_chunks(
         {"role": "system", "content": system},
         {"role": "user", "content": brief_user},
     ]
-    brief = await generate_structured(brief_messages, temperature=0.7)
+    brief = await generate_structured(brief_messages, temperature=0.7, role="writer")
     beats_out = brief.get("beats") or []
     if len(beats_out) < first_n:
         # _request_beats_chunk retries the short chunk once at low temp.

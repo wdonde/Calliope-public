@@ -1224,6 +1224,8 @@ export const ja: Dict = {
 	'settings.roleAssetsHint': 'キャラクター・ロケーション・アイテムの参照画像を生成します。',
 	'settings.roleVideo': '動画',
 	'settings.roleVideoHint': '動画生成に使うプロンプトを書き換えます。',
+	'settings.roleWriter': 'Writer',
+	'settings.roleWriterHint': 'Writes long text without driving an agent: storyline beats, characters and locations, novel summaries, skill drafts. Unset = the active LLM.',
 	// --- H3 motion-context chain ---
 	'chain.latentAuto': 'クリップチェーンから自動入力',
 	'chain.aria': 'モーションコンテキストのチェーン',

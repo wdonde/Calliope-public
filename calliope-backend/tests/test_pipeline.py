@@ -262,7 +262,7 @@ def test_workflow_analyze_and_create(client):
 
 
 def test_story_replace_on_regenerate(client, monkeypatch):
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         return {
             "title": "T",
             "logline": "L",
@@ -302,7 +302,7 @@ def test_story_replace_on_regenerate(client, monkeypatch):
 def test_story_replace_clears_scene_locations(client, monkeypatch):
     """replace=true deletes all locations; scenes.location_id (no FK) must be
     nulled, not left dangling at dead location rows."""
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         return {
             "title": "T",
             "logline": "L",
@@ -345,7 +345,7 @@ def test_story_replace_clears_scene_locations(client, monkeypatch):
 
 
 def test_story_seeds_items(client, monkeypatch):
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         return {
             "title": "T",
             "logline": "L",

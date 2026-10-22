@@ -103,7 +103,7 @@ def _slug(text: str) -> str:
 async def draft_skill(workflow_json: dict[str, Any], *, kind: str, workflow_name: str) -> dict[str, Any]:
     """Write a new ``<family>-video-prompt`` skill draft; returns its name.
 
-    The "story" role writes it -- a writing task, answered as plain Markdown
+    The "writer" role writes it -- a writing task, answered as plain Markdown
     (a long document packed into JSON is where small models fail).
     """
     if kind != "video":
@@ -111,7 +111,7 @@ async def draft_skill(workflow_json: dict[str, Any], *, kind: str, workflow_name
     check = await check_format(workflow_json, kind=kind)
     family = check.get("family") or workflow_name
     fp = workflow_fingerprint(workflow_json)
-    client = LLMClient.for_role("story", timeout=300.0)
+    client = LLMClient.for_role("writer", timeout=300.0)
     try:
         body = (await client.chat([
             {"role": "system", "content": "You write concise technical Markdown. Output only the document."},

@@ -1224,6 +1224,8 @@ export const es: Dict = {
 	'settings.roleAssetsHint': 'Genera imágenes de referencia de personajes, localizaciones y objetos.',
 	'settings.roleVideo': 'Vídeo',
 	'settings.roleVideoHint': 'Reescribe los prompts usados para generar vídeo.',
+	'settings.roleWriter': 'Writer',
+	'settings.roleWriterHint': 'Writes long text without driving an agent: storyline beats, characters and locations, novel summaries, skill drafts. Unset = the active LLM.',
 	// --- H3 motion-context chain ---
 	'chain.latentAuto': 'Se rellena automáticamente desde la cadena de clips',
 	'chain.aria': 'Cadena de contexto de movimiento',

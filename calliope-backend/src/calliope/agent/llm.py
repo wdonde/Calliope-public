@@ -825,9 +825,10 @@ def extract_json(text: str) -> dict[str, Any]:
 
 
 async def generate_structured(
-    messages: list[dict[str, str]], temperature: float = 0.7
+    messages: list[dict[str, str]], temperature: float = 0.7, *, role: str | None = None
 ) -> dict[str, Any]:
-    client = LLMClient()
+    """``role`` picks that role's model (e.g. "writer"); None = the active LLM."""
+    client = LLMClient.for_role(role) if role else LLMClient()
     try:
         # JSON mode is off by default: several OpenAI-compatible servers
         # (notably LM Studio) reject response_format, and the prompts already

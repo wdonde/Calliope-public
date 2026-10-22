@@ -22,7 +22,7 @@ def fake_llm(monkeypatch):
     from the user prompt and returns exactly that many beats."""
     calls: list[dict] = []
 
-    async def fake(messages, temperature=0.7):
+    async def fake(messages, temperature=0.7, **kw):
         user = messages[1]["content"]
         chunk_n = 0
         start = 1
@@ -140,7 +140,7 @@ def test_missing_cast_is_reported_as_zero_not_omitted(client, monkeypatch):
     """
     import calliope.routers.story as story_router
 
-    async def fake(messages, temperature=0.7):
+    async def fake(messages, temperature=0.7, **kw):
         user = messages[1]["content"]
         import re
 

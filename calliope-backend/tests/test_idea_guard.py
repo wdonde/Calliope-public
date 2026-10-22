@@ -130,7 +130,7 @@ def no_llm(monkeypatch):
     """Record every attempt to call the model. Must stay empty."""
     calls: list[dict] = []
 
-    async def fake(messages, temperature=0.7):
+    async def fake(messages, temperature=0.7, **kw):
         calls.append({"messages": messages})
         raise AssertionError("the guard let a model call through")
 
@@ -164,7 +164,7 @@ def test_generate_story_still_works_on_a_logline(client, monkeypatch):
 
     seen: list[int] = []
 
-    async def ok(messages, temperature=0.7):
+    async def ok(messages, temperature=0.7, **kw):
         seen.append(1)
         # The endpoint 502s unless the beat count matches what the target
         # duration asks for, so the stub has to honour that or this test fails

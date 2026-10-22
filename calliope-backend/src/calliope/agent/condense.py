@@ -143,7 +143,7 @@ async def condense_source(
         "min_chars": TARGET_CHARS - 600,
         "max_chars": TARGET_CHARS,
     }
-    client = LLMClient.for_role("story", timeout=600.0)
+    client = LLMClient.for_role("writer", timeout=600.0)
     try:
         chunks = split_text(text)
         summaries: list[str] = []

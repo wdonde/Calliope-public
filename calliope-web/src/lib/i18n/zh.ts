@@ -1224,6 +1224,8 @@ export const zh: Dict = {
 	'settings.roleAssetsHint': '生成角色、场景与道具的参考图。',
 	'settings.roleVideo': '视频',
 	'settings.roleVideoHint': '改写用于视频生成的提示词。',
+	'settings.roleWriter': 'Writer',
+	'settings.roleWriterHint': 'Writes long text without driving an agent: storyline beats, characters and locations, novel summaries, skill drafts. Unset = the active LLM.',
 	// --- H3 motion-context chain ---
 	'chain.latentAuto': '由片段链自动填充',
 	'chain.aria': '动作上下文链',
