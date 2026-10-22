@@ -86,6 +86,7 @@ export const de: Dict = {
 	'projects.fileLoaded': '{name} geladen ({n} Zeichen)',
 	'projects.fileFailed': 'Datei konnte nicht gelesen werden',
 	'projects.ideaCondense': 'Als Roman speichern und KI-Kurzfassung erstellen (inkl. Genre, Tone und Länge)',
+	'projects.fillFields': 'KI wählt auch Genre, Tone und Länge (sonst bleiben deine Einstellungen)',
 	'projects.condensing': 'Kurzfassung deines Romans wird erstellt … dauert 1–3 Minuten',
 	'projects.condensed': 'Kurzfassung erstellt — Draft Storyline ist bereit',
 	'projects.condenseFailed': 'Kurzfassung fehlgeschlagen',

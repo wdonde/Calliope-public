@@ -22,10 +22,10 @@
 	// Set at submit: the novel to condense once the project exists.
 	let pendingNovel: string | null = null;
 
-	async function condenseNovel(projectId: number, text: string) {
+	async function condenseNovel(projectId: number, text: string, fill: boolean) {
 		toast.info(t('projects.condensing'));
 		try {
-			await projects.condenseIdea(projectId, { text, fill_fields: true });
+			await projects.condenseIdea(projectId, { text, fill_fields: fill });
 			await client.invalidateQueries({ queryKey: ['story'] });
 			await client.invalidateQueries({ queryKey: ['projects'] });
 			toast.success(t('projects.condensed'));
@@ -42,7 +42,7 @@
 			const novel = pendingNovel;
 			pendingNovel = null;
 			goto(`/project/${data.id}`);
-			if (novel) void condenseNovel(data.id, novel);
+			if (novel) void condenseNovel(data.id, novel, fillFields);
 		},
 		onError: (err) => {
 			toast.error(err instanceof Error ? err.message : t('projects.createFailed'));
@@ -89,6 +89,8 @@
 	// project created this way is still `builtin` and so still gets the 422.
 	const ideaTooLong = $derived(idea.length > 2000);
 	let condense = $state(true);
+	// Off: the genre, tone and length picked below survive the summary.
+	let fillFields = $state(true);
 	let fileInput = $state<HTMLInputElement | null>(null);
 
 	async function onFilePicked(e: Event) {
@@ -124,6 +126,7 @@
 		title = '';
 		idea = '';
 		condense = true;
+		fillFields = true;
 		genre = 'Adventure / Mystery';
 		tone = 'Cinematic, atmospheric';
 		duration = '2 minutes';
@@ -218,6 +221,12 @@
 						<input type="checkbox" bind:checked={condense} />
 						{t('projects.ideaCondense')}
 					</label>
+					{#if condense}
+						<label class="condense-toggle">
+							<input type="checkbox" bind:checked={fillFields} />
+							{t('projects.fillFields')}
+						</label>
+					{/if}
 					{#if !condense}
 						<p class="field-warn">{t('projects.ideaTooLong')}</p>
 					{/if}

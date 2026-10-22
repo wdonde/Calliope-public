@@ -86,6 +86,7 @@ export const ja: Dict = {
 	'projects.fileLoaded': 'Loaded {name} ({n} characters)',
 	'projects.fileFailed': 'Could not read the file',
 	'projects.ideaCondense': 'Store as novel and let the AI write a summary (plus genre, tone and length)',
+	'projects.fillFields': 'Let the AI also pick genre, tone and length (otherwise your settings are kept)',
 	'projects.condensing': 'Summarizing your novel… this takes 1–3 minutes',
 	'projects.condensed': 'Summary written — Draft storyline is ready',
 	'projects.condenseFailed': 'Summary failed',

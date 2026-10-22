@@ -122,6 +122,8 @@
 	const ideaTooLong = $derived(ideaDraft.length > 2000);
 	const sourceChars = $derived(story.project.source_chars ?? 0);
 	let fileInput = $state<HTMLInputElement | null>(null);
+	// Off: genre, tone and length set by hand survive a (re-)summary.
+	let fillFields = $state(true);
 
 	async function onFilePicked(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
@@ -142,7 +144,7 @@
 			projects.condenseIdea(projectId, {
 				// A novel pasted into the field replaces the stored one.
 				text: ideaTooLong ? ideaDraft : undefined,
-				fill_fields: true,
+				fill_fields: fillFields,
 			}),
 		onSuccess: () => {
 			client.invalidateQueries({ queryKey: ['story'] });
@@ -451,6 +453,10 @@
 					{ideaTooLong ? t('story.condense') : t('story.recondense')}
 				{/if}
 			</Button>
+			<label class="condense-toggle">
+				<input type="checkbox" bind:checked={fillFields} />
+				{t('projects.fillFields')}
+			</label>
 		</div>
 	{/if}
 </Card>
