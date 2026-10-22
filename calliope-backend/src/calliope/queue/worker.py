@@ -588,6 +588,11 @@ class QueueWorker:
                     "UPDATE items SET reference_image_path = ? WHERE id = ?",
                     (primary, item_id),
                 )
+            if payload.get("panel_id"):
+                conn.execute(
+                    "UPDATE panels SET image_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (primary, payload["panel_id"]),
+                )
             if job.get("clip_id") and job["kind"] == "video":
                 conn.execute(
                     "UPDATE clips SET clip_path = ? WHERE id = ?",

@@ -18,6 +18,8 @@ class ProjectCreate(BaseModel):
     genre: str | None = None
     tone: str | None = None
     target_duration: str | None = None
+    # Fixed at creation: a film, a webtoon strip or manga pages.
+    format: Literal["video", "webtoon", "manga"] = "video"
 
 
 class ProjectUpdate(BaseModel):
@@ -65,6 +67,7 @@ class Project(BaseModel):
     idea_preview: str | None = None
     # Length of the stored novel (`projects.source_text`), never the text itself.
     source_chars: int | None = None
+    format: str = "video"
     genre: str | None
     tone: str | None
     target_duration: str | None

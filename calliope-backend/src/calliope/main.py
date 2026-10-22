@@ -20,6 +20,7 @@ from calliope.routers import (
     agent,
     assets,
     canvas,
+    comic,
     events,
     jobs,
     library,
@@ -138,6 +139,7 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
     app.include_router(library.router, prefix="/api/library", tags=["library"])
     app.include_router(canvas.router, prefix="/api/canvas", tags=["canvas"])
     app.include_router(shots.router, prefix="/api/shots", tags=["shots"])
+    app.include_router(comic.router, prefix="/api", tags=["comic"])
     app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
     app.include_router(events.router, prefix="/api/events", tags=["events"])
 

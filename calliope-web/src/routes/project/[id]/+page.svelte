@@ -9,6 +9,7 @@
 	import AssetsStage from '$lib/components/AssetsStage.svelte';
 	import ScriptStage from '$lib/components/ScriptStage.svelte';
 	import QueueStage from '$lib/components/QueueStage.svelte';
+	import ComicStage from '$lib/components/ComicStage.svelte';
 	import ActivityPanel from '$lib/components/ActivityPanel.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -101,6 +102,7 @@
 		Boolean($settingsQuery.data?.llm_base_url && $settingsQuery.data?.llm_model),
 	);
 	const projectTitle = $derived($storyQuery.data?.project?.title ?? 'Project');
+	const projectFormat = $derived($storyQuery.data?.project?.format ?? 'video');
 
 	const runningCount = $derived(
 		($jobsQuery.data ?? []).filter((j) => j.status === 'running').length,
@@ -183,7 +185,7 @@
 		</div>
 
 		<div class="workspace">
-			<NavRail active={activeTab} onSelect={selectStage} />
+			<NavRail active={activeTab} onSelect={selectStage} format={projectFormat} />
 
 			<main class="stage" class:stage-fill={activeTab === 'video'}>
 				{#if activeTab === 'story'}
@@ -210,6 +212,8 @@
 					<AssetsStage {projectId} />
 				{:else if activeTab === 'script'}
 					<ScriptStage {projectId} />
+				{:else if activeTab === 'video' && projectFormat !== 'video'}
+					<ComicStage {projectId} format={projectFormat} />
 				{:else if activeTab === 'video'}
 					<QueueStage {projectId} {projectTitle} />
 				{/if}

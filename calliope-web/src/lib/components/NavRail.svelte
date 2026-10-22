@@ -4,23 +4,29 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import type { IconName } from '$lib/components/ui/icons';
 
-	const items = $derived(
-		[
-			{ id: 'story', key: 'nav.story', icon: 'story' },
-			{ id: 'assets', key: 'nav.assets', icon: 'assets' },
-			{ id: 'script', key: 'nav.script', icon: 'script' },
-			{ id: 'video', key: 'nav.video', icon: 'video' },
-		] as { id: string; key: string; icon: IconName }[],
-	);
+
 
 	interface Props {
 		active?: string;
 		onSelect?: (id: string) => void;
 		/** Optional per-stage counts — a nonzero value shows a small pill on the icon. */
 		badges?: Record<string, number>;
+		format?: string;
 	}
 
-	let { active = 'story', onSelect, badges = {} }: Props = $props();
+	let { active = 'story', onSelect, badges = {}, format = 'video' }: Props = $props();
+
+	const items = $derived(
+		[
+			{ id: 'story', key: 'nav.story', icon: 'story' },
+			{ id: 'assets', key: 'nav.assets', icon: 'assets' },
+			{ id: 'script', key: 'nav.script', icon: 'script' },
+			// Comic projects end in panels, not clips: same stage slot, other label.
+			format === 'video'
+				? { id: 'video', key: 'nav.video', icon: 'video' }
+				: { id: 'video', key: 'nav.panels', icon: 'image' },
+		] as { id: string; key: string; icon: IconName }[],
+	);
 </script>
 
 <nav class="nav" aria-label={t('nav.projectStages')}>

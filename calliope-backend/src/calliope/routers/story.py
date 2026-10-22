@@ -480,7 +480,7 @@ async def get_story(project_id: int) -> dict[str, Any]:
     try:
         project = conn.execute(
             "SELECT id, title, idea, genre, tone, target_duration, status, ingest_mode,"
-            " LENGTH(source_text) AS source_chars, source_summaries"
+            " LENGTH(source_text) AS source_chars, source_summaries, format"
             " FROM projects WHERE id = ?",
             (project_id,),
         ).fetchone()

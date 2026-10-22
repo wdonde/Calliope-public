@@ -75,6 +75,13 @@
 	};
 
 	let title = $state('');
+	// Fixed for the project's life: video, webtoon strip or manga pages.
+	let format = $state<'video' | 'webtoon' | 'manga'>('video');
+	const FORMATS = [
+		{ id: 'video', icon: 'film', key: 'projects.formatVideo', hint: 'projects.formatVideoHint' },
+		{ id: 'webtoon', icon: 'image', key: 'projects.formatWebtoon', hint: 'projects.formatWebtoonHint' },
+		{ id: 'manga', icon: 'file', key: 'projects.formatManga', hint: 'projects.formatMangaHint' },
+	] as const;
 	let idea = $state('');
 	let genre = $state('Adventure / Mystery');
 	let tone = $state('Cinematic, atmospheric');
@@ -114,6 +121,7 @@
 		pendingNovel = ideaTooLong && condense ? idea.trim() : null;
 		$createProjectMutation.mutate({
 			title: title.trim(),
+			format,
 			idea: pendingNovel ? undefined : idea.trim() || undefined,
 			genre: genre || undefined,
 			tone: tone || undefined,
@@ -125,6 +133,7 @@
 		showForm = true;
 		title = '';
 		idea = '';
+		format = 'video';
 		condense = true;
 		fillFields = true;
 		genre = 'Adventure / Mystery';
@@ -191,6 +200,27 @@
 					<h3>{t('projects.new')}</h3>
 				</div>
 				<Button variant="ghost" onclick={() => (showForm = false)}>{t('projects.close')}</Button>
+			</div>
+
+			<div class="field">
+				<span class="field-label">{t('projects.formatField')}</span>
+				<div class="format-grid" role="radiogroup">
+					{#each FORMATS as f (f.id)}
+						<button
+							type="button"
+							role="radio"
+							aria-checked={format === f.id}
+							class="format-card"
+							class:selected={format === f.id}
+							onclick={() => (format = f.id)}
+						>
+							<Icon name={f.icon} size={18} />
+							<strong>{t(f.key)}</strong>
+							<span>{t(f.hint)}</span>
+						</button>
+					{/each}
+				</div>
+				<p class="field-hint">{t('projects.formatFixed')}</p>
 			</div>
 
 			<label class="field">
@@ -364,6 +394,36 @@
 </main>
 
 <style>
+	.format-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 10px;
+	}
+	.format-card {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+		padding: 12px;
+		border: 1px solid var(--border, #3f3f46);
+		border-radius: 10px;
+		background: none;
+		color: var(--text-secondary);
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.format-card strong {
+		color: var(--text-primary);
+	}
+	.format-card span {
+		font-size: 12px;
+	}
+	.format-card.selected {
+		border-color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+	}
+
 	.container {
 		max-width: 1280px;
 		margin: 0 auto;

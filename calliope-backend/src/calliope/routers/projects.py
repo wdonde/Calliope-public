@@ -57,8 +57,8 @@ async def create_project(payload: ProjectCreate):
     try:
         cur = conn.execute(
             """
-            INSERT INTO projects (title, idea, genre, tone, target_duration)
-            VALUES (:title, :idea, :genre, :tone, :target_duration)
+            INSERT INTO projects (title, idea, genre, tone, target_duration, format)
+            VALUES (:title, :idea, :genre, :tone, :target_duration, :format)
             """,
             payload.model_dump(),
         )

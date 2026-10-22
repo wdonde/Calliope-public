@@ -27,6 +27,7 @@ export interface Project {
 	ingest_mode: string;
 	/** Length of the stored novel (`source_text`), when one was condensed into `idea`. */
 	source_chars?: number | null;
+	format?: ProjectFormat;
 	/** Part-by-part outline of the stored novel; Draft Storyline reads it. */
 	source_summaries?: string[];
 	/** Longest Story idea the built-in generators take (story endpoint only). */
@@ -43,13 +44,62 @@ export interface ProjectStats {
 	asset_total_count: number;
 }
 
+export type ProjectFormat = 'video' | 'webtoon' | 'manga';
+
 export interface ProjectCreate {
 	title: string;
 	idea?: string;
 	genre?: string;
 	tone?: string;
 	target_duration?: string;
+	/** Fixed at creation: a film, a webtoon strip or manga pages. */
+	format?: ProjectFormat;
 }
+
+export interface Bubble {
+	speaker: string;
+	text: string;
+	/** Position as 0..1 of the panel; null = automatic. */
+	x: number | null;
+	y: number | null;
+}
+
+export interface Panel {
+	id: number;
+	clip_id: number;
+	prompt: string;
+	seed: number;
+	width: number;
+	height: number;
+	refs: string[];
+	bubbles: Bubble[];
+	caption: string | null;
+	image_path: string | null;
+	job_id: number | null;
+	job_status: string | null;
+	job_error: string | null;
+	shot_size: string | null;
+	scene_order: number;
+	clip_order: number;
+}
+
+export const comicApi = {
+	list: (projectId: number) => api<Panel[]>(`/api/projects/${projectId}/panels`),
+	plan: (projectId: number, replan = false) =>
+		api<Panel[]>(`/api/projects/${projectId}/panels/plan`, { method: 'POST', body: JSON.stringify({ replan }) }),
+	render: (projectId: number, payload: { panel_ids?: number[]; missing_only?: boolean; reseed?: boolean } = {}) =>
+		api<{ queued: number; job_ids: number[] }>(`/api/projects/${projectId}/panels/render`, {
+			method: 'POST',
+			body: JSON.stringify(payload),
+		}),
+	update: (panelId: number, payload: { prompt?: string; seed?: number; caption?: string; bubbles?: Bubble[] }) =>
+		api<Panel>(`/api/panels/${panelId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+	export: (projectId: number, rtl = true) =>
+		api<{ files: string[] }>(`/api/projects/${projectId}/comic/export`, {
+			method: 'POST',
+			body: JSON.stringify({ rtl }),
+		}),
+};
 
 export interface Beat {
 	id: number;

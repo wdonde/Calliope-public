@@ -404,6 +404,31 @@ async def migrate_db(db_path: Path) -> None:
     # JSON list: the novel part by part, so Draft Storyline sees the whole plot.
     if "source_summaries" not in project_cols:
         conn.execute("ALTER TABLE projects ADD COLUMN source_summaries TEXT")
+    # What the project produces: a film, or a comic laid out as a webtoon strip
+    # or manga pages. Fixed at creation (agent/comic.py renders the comics).
+    if "format" not in project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN format TEXT NOT NULL DEFAULT 'video'")
+    # One comic panel per clip: its image prompt, references, speech bubbles.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS panels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            clip_id INTEGER NOT NULL UNIQUE REFERENCES clips(id) ON DELETE CASCADE,
+            prompt TEXT,
+            seed INTEGER NOT NULL DEFAULT 42,
+            width INTEGER NOT NULL DEFAULT 1024,
+            height INTEGER NOT NULL DEFAULT 1024,
+            refs_json TEXT,
+            bubbles_json TEXT,
+            caption TEXT,
+            image_path TEXT,
+            job_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     # cli_audit: append-only. Rollback is a NEW row carrying undo_of_entry_id,
     # never a DELETE — the log must be able to explain itself.
     conn.execute(
