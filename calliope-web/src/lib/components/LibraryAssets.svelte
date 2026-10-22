@@ -9,6 +9,7 @@
 	import { t } from '$lib/i18n.svelte';
 	import { toast } from '$lib/toast';
 	import AssetTags from '$lib/components/AssetTags.svelte';
+	import { tagMatches } from '$lib/tags';
 	import NewAssetDialog from '$lib/components/NewAssetDialog.svelte';
 	import RenderQueue from '$lib/components/RenderQueue.svelte';
 	import LibraryAssetEditor from '$lib/components/LibraryAssetEditor.svelte';
@@ -51,7 +52,7 @@
 			if (activeTag) {
 				const ok = activeTag.startsWith('category:')
 					? `category:${a.category ?? ''}` === activeTag
-					: a.tags.includes(activeTag);
+					: a.tags.some((tag) => tagMatches(tag, activeTag!));
 				if (!ok) return false;
 			}
 			const hay = [a.name, a.category ?? '', ...a.tags, ...Object.values(a.data).filter((v): v is string => typeof v === 'string')]

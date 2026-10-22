@@ -40,6 +40,7 @@
 		locationReferenceTemplate,
 	} from '$lib/promptTemplates';
 	import { assetLibraryApi, settings as settingsApi, type AssetKind } from '$lib/api';
+	import { tagMatches } from '$lib/tags';
 	import { toast } from '$lib/toast';
 	import { t } from '$lib/i18n.svelte';
 
@@ -67,7 +68,7 @@
 			if (activeTag) {
 				const ok = activeTag.startsWith('category:')
 					? `category:${e.category ?? ''}` === activeTag
-					: tags.includes(activeTag);
+					: tags.some((tag) => tagMatches(tag, activeTag!));
 				if (!ok) return false;
 			}
 			const hay = [e.name, e.category ?? '', ...tags, text(e)].join(' ').toLowerCase();

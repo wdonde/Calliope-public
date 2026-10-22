@@ -5,6 +5,7 @@
 	 * "To library" copies the asset into the cross-project asset library.
 	 */
 	import { t } from '$lib/i18n.svelte';
+	import { groupTags } from '$lib/tags';
 
 	interface Props {
 		tags: string[];
@@ -70,8 +71,15 @@
 				<button type="button" class="chip category" class:active={active === `category:${category}`}
 					onclick={() => onfilter(`category:${category}`)}>{category}</button>
 			{/if}
-			{#each tags as tag (tag)}
-				<button type="button" class="chip" class:active={active === tag} onclick={() => onfilter(tag)}>{tag}</button>
+			{#each groupTags(tags) as g (g.key + g.values.join('|'))}
+				<span class="group">
+					{#if g.key}<span class="key">{g.key}</span>{/if}
+					{#each g.values as v, i (v)}
+						{#if i > 0}<span class="sep">|</span>{/if}
+						{@const filter = g.key ? `${g.key}:${v}` : v}
+						<button type="button" class="val" class:active={active === filter} onclick={() => onfilter(filter)}>{v}</button>
+					{/each}
+				</span>
 			{/each}
 			{#if readonly}
 				<span class="from-sheet" title={t('assets.tagsFromSheet')}>{t('assets.tagsFromSheetShort')}</span>
@@ -107,6 +115,40 @@
 		padding: 1px 8px;
 		font-size: 11px;
 		cursor: pointer;
+	}
+	.group {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		padding: 1px 4px 1px 8px;
+		font-size: 11px;
+	}
+	.key {
+		color: var(--text-muted);
+	}
+	.key::after {
+		content: ':';
+	}
+	.sep {
+		color: var(--text-muted);
+	}
+	.val {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		padding: 0 4px;
+		border-radius: 999px;
+		cursor: pointer;
+		font-size: 11px;
+	}
+	.val:hover {
+		color: var(--accent);
+	}
+	.val.active {
+		background: var(--accent);
+		color: #fff;
 	}
 	.chip.category {
 		color: var(--accent);

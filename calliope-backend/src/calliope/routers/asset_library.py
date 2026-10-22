@@ -34,6 +34,7 @@ from calliope.agent.character_identity import (
     complete_sheet,
     story_fields,
     sync_story_fields,
+    tag_matches,
     identity_tags,
     identity_text,
     is_sheet,
@@ -158,7 +159,7 @@ async def list_library(kind: Kind | None = None, q: str | None = None, tag: str 
     if kind:
         assets = [a for a in assets if a["kind"] == kind]
     if tag:
-        assets = [a for a in assets if tag.lower() in (t.lower() for t in a["tags"])]
+        assets = [a for a in assets if any(tag_matches(t, tag) for t in a["tags"])]
     if q:
         assets = [a for a in assets if _matches(a, q)]
     return assets

@@ -12,8 +12,8 @@ from calliope.agent.asset_tags import aliases, name_tags, normalize_tags
 
 
 def test_tags_are_cleaned_and_placeholders_dropped():
-    assert normalize_tags(["Alias : Ripper Eddy", "alias:ripper eddy", " villain ", "type:interior|exterior",
-                           "alias:other names, if any", "", 5]) == ["alias:Ripper Eddy", "villain"]
+    assert normalize_tags(["Alias : Ripper Eddy", "alias:ripper eddy", " villain ", "type:interior|exterior|landscape|vehicle interior", "chest:large|full bust",
+                           "alias:other names, if any", "", 5]) == ["alias:Ripper Eddy", "villain", "chest:large|full bust"]
     assert name_tags("Captain Edward 'Ripper Eddy' Reed") == ["alias:Ripper Eddy"]
     assert name_tags("Shane O'Brien") == []
     assert aliases({"tags": ["alias:Eddy", "faction:Union", "nickname:Rip"]}) == ["Eddy", "Rip"]
@@ -240,7 +240,7 @@ def test_library_keeps_only_the_identity_and_projects_find_and_use_it(client):
     assert lib["data"]["appearance"].endswith("scar across left cheek") and "OUTFIT" not in lib["data"]["appearance"]
     assert "personality" not in lib["data"] and lib["data"]["role"] == "Protagonist"  # role: own field, as typed
     assert lib["tags"] == ["alias:Ripper Eddy", "role:protagonist", "gender:male", "age:45", "build:muscular",
-                           "hair:short, graying, military cut", "mark:prominent scar across left cheek"]
+                           "hair:short|graying|military cut", "mark:prominent scar across left cheek"]
 
     # Another project has its own Reed in a pilot outfit.
     b = client.post("/api/projects", json={"title": "Sequel"}).json()["id"]
@@ -261,7 +261,9 @@ def test_library_keeps_only_the_identity_and_projects_find_and_use_it(client):
 
     edited = client.patch(f"/api/asset-library/{lib['id']}", json={
         "data": {"appearance": SHEET.replace("military cut", "shaved")}}).json()
-    assert "hair:short, graying, shaved" in edited["tags"] and "OUTFIT" not in edited["data"]["appearance"]
+    assert "hair:short|graying|shaved" in edited["tags"] and "OUTFIT" not in edited["data"]["appearance"]
+    # One value of a multi-value tag is enough to filter by.
+    assert [a["id"] for a in client.get("/api/asset-library", params={"tag": "hair:graying"}).json()] == [lib["id"]]
 
 
 
@@ -437,7 +439,7 @@ def test_sheet_body_alias_role_rules(client):
     c = client.post(f"/api/projects/{pid}/characters", json={"name": "Kaoru Toyma", "appearance": sheet,
                                                             "tags": ["faction:ignored"]}).json()
     assert c["tags"] == ["alias:Toyma", "alias:Kao", "role:protagonist", "build:curvy",
-                         "muscles:soft, lightly toned", "legs:long, full thighs"]
+                         "muscles:soft|lightly toned", "legs:long|full thighs"]
     # Typed tags do not stick to a character with a sheet; editing the sheet updates them.
     c = client.patch(f"/api/projects/{pid}/characters/{c['id']}", json={"tags": ["x:y"]}).json()
     assert "x:y" not in c["tags"]

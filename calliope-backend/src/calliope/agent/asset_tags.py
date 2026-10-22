@@ -21,6 +21,13 @@ from calliope.db import get_db, row_to_dict
 ITEM_CATEGORIES = ("weapon", "vehicle", "device", "furniture", "clothing", "tool", "creature", "prop")
 MAX_TAGS = 20
 ALIAS_KEYS = ("alias", "name", "nickname")
+# Option lists from the prompt schemas that models sometimes echo back as a value.
+# ("a|b" is otherwise a real tag: several values of one key, e.g. "chest:large|full bust".)
+SCHEMA_PLACEHOLDERS = {
+    "interior|exterior|landscape|vehicle interior",
+    "weapon|vehicle|device|furniture|clothing|tool|creature|prop",
+    "protagonist|antagonist|supporting",
+}
 
 
 def normalize_tags(tags: Any) -> list[str]:
@@ -36,7 +43,8 @@ def normalize_tags(tags: Any) -> list[str]:
         if ":" in tag:
             key, _, value = tag.partition(":")
             key, value = key.strip().lower(), value.strip()
-            if not key or not value or "|" in value or value.lower().startswith(("other names", "every other", "group or")):
+            if not key or not value or value.lower() in SCHEMA_PLACEHOLDERS \
+                    or value.lower().startswith(("other names", "every other", "group or")):
                 continue  # empty or a schema placeholder echoed back
             tag = f"{key}:{value}"
         if tag and tag.lower() not in seen:

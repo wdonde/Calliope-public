@@ -704,6 +704,11 @@ export interface QueueJob {
 	completed_at: string | null;
 	error: string | null;
 	output: string | null;
+	/** Forecast (running/queued): usual seconds for this workflow, and when this job should be done (UTC). */
+	typical_sec?: number;
+	remaining_sec?: number;
+	eta?: string;
+	estimate_from?: 'workflow' | 'kind' | 'default';
 }
 
 export interface QueueOverview {
@@ -712,6 +717,8 @@ export interface QueueOverview {
 	recent: QueueJob[];
 	/** Jobs of other projects in the same queue (they run first or in between). */
 	elsewhere: { running: number; queued: number };
+	/** When the last of these jobs should be done (UTC). */
+	finish_at: string | null;
 }
 
 export const jobsApi = {

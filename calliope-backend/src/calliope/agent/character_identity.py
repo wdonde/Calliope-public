@@ -83,16 +83,21 @@ def fields(identity: str | None) -> dict[str, str]:
     return out
 
 
-def _short(value: str, limit: int = 48) -> str:
-    """Whole comma-separated phrases up to ``limit`` characters, lower case."""
-    out = ""
-    for part in re.split(r"[;.]", value)[0].split(","):
-        part = part.strip()
-        candidate = f"{out}, {part}" if out else part
-        if out and len(candidate) > limit:
-            break
-        out = candidate
-    return out.lower()
+def tag_values(value: str, limit: int = 5) -> list[str]:
+    """A sheet value as separate, filterable tag values: its comma-separated
+    parts, lower case ('large, full bust' -> ['large', 'full bust'])."""
+    first = re.split(r"[;.]", value)[0]
+    parts = [p.strip().lower() for p in first.split(",") if p.strip()]
+    return [p if len(p) <= 40 else p[:40].rsplit(" ", 1)[0] for p in parts][:limit]
+
+
+def tag_matches(tag: str, wanted: str) -> bool:
+    """Whether a tag fits a filter: 'chest:large' matches 'chest:large|full bust'."""
+    key, _, values = tag.lower().partition(":")
+    wkey, _, wvalue = wanted.lower().partition(":")
+    if not wvalue:
+        return tag.lower() == wanted.lower()
+    return key == wkey and (values == wvalue or wvalue in values.split("|"))
 
 
 def identity_tags(identity: str | None) -> list[str]:
@@ -106,7 +111,7 @@ def identity_tags(identity: str | None) -> list[str]:
         if label == "Alias":
             tags += [f"alias:{a.strip()}" for a in re.split(r"[,;/]", value) if a.strip()]
         else:
-            tags.append(f"{key}:{_short(value)}")
+            tags.append(f"{key}:{'|'.join(tag_values(value))}")
     return tags
 
 

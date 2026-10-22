@@ -59,6 +59,21 @@
 		return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s`;
 	}
 
+	const toMs = (utc: string) => Date.parse(utc.replace(' ', 'T') + 'Z');
+
+	/** "≈ 22:41 (in 12 min)", with the date when it is not today. */
+	function forecast(utc: string | null | undefined): string {
+		if (!utc) return '';
+		const at = new Date(toMs(utc));
+		const left = Math.round((at.getTime() - now) / 60000);
+		const sameDay = at.toDateString() === new Date(now).toDateString();
+		const clock = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+		const when = sameDay ? clock : `${at.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${clock}`;
+		if (left <= 0) return t('queue.anyMoment');
+		const rest = left < 60 ? `${left} min` : `${Math.floor(left / 60)} h ${String(left % 60).padStart(2, '0')} min`;
+		return t('queue.eta', { when, rest });
+	}
+
 	async function cancel(job: QueueJob) {
 		try {
 			await jobsApi.cancel(job.id);
@@ -70,7 +85,13 @@
 </script>
 
 <!-- A compact button in the filter row; the details open in a dialog. -->
-<button type="button" class="queue-btn" class:active={count > 0} title={t('queue.title')} onclick={() => (open = true)}>
+<button
+	type="button"
+	class="queue-btn"
+	class:active={count > 0}
+	title={data?.finish_at ? `${t('queue.title')} — ${t('queue.allDone')} ${forecast(data.finish_at)}` : t('queue.title')}
+	onclick={() => (open = true)}
+>
 	{#if data?.running.length}<span class="dot"></span>{/if}
 	{t('queue.button', { n: count })}
 </button>
@@ -86,6 +107,9 @@
 			{#if projectId != null && (data.elsewhere.running || data.elsewhere.queued)}
 				· {t('queue.elsewhere', { n: data.elsewhere.running + data.elsewhere.queued })}
 			{/if}
+			{#if data.finish_at}
+				<br /><strong>{t('queue.allDone')} {forecast(data.finish_at)}</strong>
+			{/if}
 		</p>
 		<ul>
 			{#each data.running as j (j.id)}
@@ -94,6 +118,7 @@
 					<span class="label">{j.label}</span>
 					{#if projectId == null && j.project}<span class="muted">{j.project}</span>{/if}
 					<span class="muted">{t('queue.rendering')} {since(j.started_at)}</span>
+					<span class="eta" title={t('queue.estimateHint', { min: Math.round((j.typical_sec ?? 0) / 60) })}>{forecast(j.eta)}</span>
 					<button type="button" class="link" onclick={() => cancel(j)}>{t('common.cancel')}</button>
 				</li>
 			{/each}
@@ -103,6 +128,7 @@
 					<span class="label">{j.label}</span>
 					{#if projectId == null && j.project}<span class="muted">{j.project}</span>{/if}
 					<span class="muted">{t('queue.waiting', { time: since(j.created_at) })}</span>
+					<span class="eta" title={t('queue.estimateHint', { min: Math.round((j.typical_sec ?? 0) / 60) })}>{forecast(j.eta)}</span>
 					<button type="button" class="link" onclick={() => cancel(j)}>{t('common.cancel')}</button>
 				</li>
 			{/each}
@@ -211,6 +237,11 @@
 	}
 	.recent.failed .state {
 		color: #f87171;
+	}
+	.eta {
+		font-size: 12px;
+		color: var(--text-secondary);
+		white-space: nowrap;
 	}
 	.muted {
 		color: var(--text-muted);
