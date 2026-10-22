@@ -59,12 +59,15 @@ async def _ask(client: LLMClient, prompt: str) -> dict[str, Any]:
 
 
 async def condense_source(
-    text: str, *, language: str = "Deutsch", progress: Progress | None = None
+    text: str, *, language: str | None = None, progress: Progress | None = None
 ) -> dict[str, str]:
     """Return ``{title, genre, tone, target_duration, idea}`` for ``text``.
 
-    ``idea`` is guaranteed to be at most ``LONG_IDEA_CHARS`` characters.
+    The prompts are English (models follow English instructions most reliably);
+    ``idea`` is written in ``language``, by default the source text's own
+    language. ``idea`` is guaranteed to be at most ``LONG_IDEA_CHARS`` characters.
     """
+    lang = language or "the same language as the source text"
     client = LLMClient.for_role("story", timeout=600.0)
     try:
         chunks = split_text(text)
@@ -73,9 +76,9 @@ async def condense_source(
             if progress:
                 await progress(f"Reading part {i}/{len(chunks)} of the source text...")
             out = await _ask(client, (
-                f"Fasse Abschnitt {i} von {len(chunks)} einer Geschichte in 4-6 Sätzen auf {language} zusammen. "
-                "Nenne Hauptfiguren mit Namen und Aussehen, Schauplätze und die wichtigsten Ereignisse.\n"
-                'Antwort: {"summary": "..."}\n\nABSCHNITT:\n' + chunk
+                f"Summarize part {i} of {len(chunks)} of a story in 4-6 sentences, written in {lang}. "
+                "Name the main characters with their appearance, the locations and the key events.\n"
+                'Answer: {"summary": "..."}\n\nPART:\n' + chunk
             ))
             summaries.append(str(out.get("summary") or "").strip())
 
@@ -83,19 +86,19 @@ async def condense_source(
             await progress("Writing the condensed story idea...")
         numbered = "\n".join(f"{i}. {s}" for i, s in enumerate(summaries, 1))
         fields = await _ask(client, (
-            "Hier sind Zusammenfassungen aller Abschnitte einer Geschichte. Fülle die Felder für ein Kurzfilm-Projekt:\n"
-            "- title: Titel der Geschichte\n"
-            '- genre: 1-3 Genres auf Englisch, z. B. "Sci-Fi, Action"\n'
-            '- tone: Stimmung und Bildstil auf Englisch in wenigen Worten, z. B. "Cinematic, dark, atmospheric"\n'
-            f"- target_duration: genau einer von {', '.join(AUTO_DURATIONS)} -- es wird ein KURZES Video, "
-            "auch bei langen Romanen.\n"
-            f"- idea: Kurzfassung der GANZEN Handlung auf {language}, {TARGET_CHARS - 600} bis {TARGET_CHARS} "
-            "Zeichen, streng chronologisch: jeder Abschnitt bekommt mindestens einen Satz. Spannende Ereignisse "
-            "(Konflikte, Gefahr, Wendepunkte, Überraschungen) haben Vorrang vor Erklärungen. Hauptfiguren und "
-            "wichtige Nebenfiguren mit Namen und kurzem Aussehen, Schauplätze. Das Ende genau wiedergeben, "
-            "einschließlich letzter Wendung, Andeutung oder offener Frage. Keine allgemeinen Schlusssätze.\n"
-            'Antwort: {"title": "...", "genre": "...", "tone": "...", "target_duration": "...", "idea": "..."}\n\n'
-            "ZUSAMMENFASSUNGEN:\n" + numbered
+            "Below are summaries of every part of a story, in order. Fill in the fields for a short-film project:\n"
+            f"- title: the story's title, in {lang}\n"
+            '- genre: 1-3 genres in English, e.g. "Sci-Fi, Action"\n'
+            '- tone: mood and visual style in a few English words, e.g. "Cinematic, dark, atmospheric"\n'
+            f"- target_duration: exactly one of {', '.join(AUTO_DURATIONS)} -- this becomes a SHORT video, "
+            "even for a long novel.\n"
+            f"- idea: a summary of the WHOLE plot in {lang}, {TARGET_CHARS - 600} to {TARGET_CHARS} "
+            "characters, strictly chronological: every part gets at least one sentence. Exciting events "
+            "(conflict, danger, turning points, surprises) take priority over explanations. Name the main and "
+            "important side characters with a short appearance, and the locations. Render the ending exactly, "
+            "including its last twist, hint or open question. No generic closing sentences.\n"
+            'Answer: {"title": "...", "genre": "...", "tone": "...", "target_duration": "...", "idea": "..."}\n\n'
+            "SUMMARIES:\n" + numbered
         ))
         idea = str(fields.get("idea") or "").strip()
         for _ in range(2):
@@ -104,9 +107,9 @@ async def condense_source(
             if progress:
                 await progress(f"Shortening the idea ({len(idea)} characters)...")
             short = str((await _ask(client, (
-                f"Schreibe den folgenden Text gekürzt neu: höchstens {TARGET_CHARS - 200} Zeichen, gleiche "
-                "Reihenfolge, alle Figuren und Wendepunkte bleiben, nur Details fallen weg. "
-                'Antwort: {"idea": "<der vollständige gekürzte Text>"}\n\nTEXT:\n' + idea
+                f"Rewrite the following text shorter: at most {TARGET_CHARS - 200} characters, same order and "
+                "same language, keep every character and turning point, drop only details. "
+                'Answer: {"idea": "<the complete shortened text>"}\n\nTEXT:\n' + idea
             ))).get("idea") or "").strip()
             if len(short) < 300:  # a comment instead of the text -- keep the longer one
                 break
