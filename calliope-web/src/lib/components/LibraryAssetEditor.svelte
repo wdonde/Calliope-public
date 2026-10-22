@@ -50,7 +50,10 @@
 		tags = asset.tags.join(', ');
 		const d = asset.data as Record<string, unknown>;
 		fields = Object.fromEntries(
-			['alias', 'appearance', 'role', 'age', 'personality', 'description', 'consistency_prompt'].map((k) => [k, String(d[k] ?? '')]),
+			['alias', 'appearance', 'role', 'age', 'personality', 'description', 'consistency_prompt', 'max_refs'].map((k) => [
+				k,
+				String(d[k] ?? (k === 'max_refs' ? 2 : '')),
+			]),
 		);
 		pics = ((d.source_images as string[] | undefined) ?? []).map((path) => ({ src: assetUrl(path) ?? '', path }));
 		savedState = snapshot();
@@ -126,7 +129,7 @@
 		if (!(fields[lookKey] ?? '').trim()) await generate();
 		busy = true;
 		try {
-			const keys = [...textFields.map((f) => f.key), 'consistency_prompt'];
+			const keys = [...textFields.map((f) => f.key), 'consistency_prompt', 'max_refs'];
 			const saved = await assetLibraryApi.update(asset.id, {
 				name: name.trim(),
 				...(isChar ? {} : { tags: tags.split(',').map((s) => s.trim()).filter(Boolean) }),
@@ -241,6 +244,13 @@
 				<div>
 					<span class="field-label">{t('assets.new.pictures', { max: 6 })}</span>
 					<PicturePicker bind:this={picker} bind:pics />
+					<label class="refs-max">
+						<span class="field-label">{t('assets.edit.maxRefs')}</span>
+						<select class="field-select" bind:value={fields.max_refs}>
+							{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={String(n)}>{n}</option>{/each}
+						</select>
+						<span class="muted small">{t('assets.edit.maxRefsHint')}</span>
+					</label>
 				</div>
 			</div>
 		</div>
@@ -306,6 +316,10 @@
 	}
 	.status {
 		margin-right: auto;
+	}
+	.refs-max {
+		margin-top: 8px;
+		max-width: 360px;
 	}
 	.refs {
 		display: flex;

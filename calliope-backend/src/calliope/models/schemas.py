@@ -130,6 +130,7 @@ class CharacterUpdate(BaseModel):
     sheet_path: str | None = None
     tags: list[str] | None = None
     alias: str | None = None
+    max_refs: int | None = Field(default=None, ge=1, le=6)
 
 
 class LocationCreate(BaseModel):
@@ -145,6 +146,7 @@ class LocationUpdate(BaseModel):
     consistency_prompt: str | None = None
     reference_image_path: str | None = None
     tags: list[str] | None = None
+    max_refs: int | None = Field(default=None, ge=1, le=6)
 
 
 class ItemCreate(BaseModel):
@@ -162,6 +164,7 @@ class ItemUpdate(BaseModel):
     reference_image_path: str | None = None
     tags: list[str] | None = None
     category: str | None = None
+    max_refs: int | None = Field(default=None, ge=1, le=6)
 
 
 class SceneCreate(BaseModel):

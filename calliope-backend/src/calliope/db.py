@@ -418,6 +418,9 @@ async def migrate_db(db_path: Path) -> None:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         if "tags" not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN tags TEXT")
+        # How many own pictures go in as references (NULL = default, agent/asset_create.py).
+        if "max_refs" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN max_refs INTEGER")
         # The user's own pictures an asset was made from (agent/asset_create.py).
         if "source_images" not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN source_images TEXT")

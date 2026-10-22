@@ -546,10 +546,43 @@ def test_all_pictures_go_in_as_far_as_a_workflow_takes_them(client):
         Image.new("RGB", (50 + i, 80), (20 * i, 60, 90)).save(p)
         pics.append(str(p))
     four = client.post("/api/workflows", json={"name": "Klein 4", "kind": "image", "workflow_json": wf(4)}).json()["id"]
-    refs, used = ac.usable_refs(pics, "character")
+    refs, used = ac.usable_refs(pics, "character", 6)
     assert len(refs) == 4 and used == four  # no 5/6-input workflow: as many as fit
     six = client.post("/api/workflows", json={"name": "Klein 6", "kind": "image", "workflow_json": wf(6)}).json()["id"]
-    refs, used = ac.usable_refs(pics, "character")
+    refs, used = ac.usable_refs(pics, "character", 6)
     assert len(refs) == 6 and used == six
-    prompt, sent = ac.image_prompt("character", {"name": "K", "source_images": pics})
+    prompt, sent = ac.image_prompt("character", {"name": "K", "source_images": pics, "max_refs": 6})
     assert "images 3 to 6 (more views)" in prompt and sent == refs
+    # Default: two references (color face + full body), whatever is uploaded.
+    client.post("/api/workflows", json={"name": "Klein 2", "kind": "image", "workflow_json": wf(2)})
+    prompt, sent = ac.image_prompt("character", {"name": "K", "source_images": pics})
+    assert len(sent) == 2 and "image 2 (full body)." in prompt
+
+
+
+def test_max_reference_pictures_is_a_library_setting(client):
+    from calliope.config import settings
+
+    def wf(n):
+        w = {"10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+             "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}
+        for i in range(n):
+            w[str(50 + 10 * i)] = {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": f"R{i} (Input:image)"}}
+        return w
+
+    for n in (2, 4):
+        client.post("/api/workflows", json={"name": f"K{n}", "kind": "image", "workflow_json": wf(n)})
+    pid = client.post("/api/projects", json={"title": "P"}).json()["id"]
+    c = client.post(f"/api/projects/{pid}/characters", json={"name": "K"}).json()
+    lib = client.post(f"/api/projects/{pid}/character/{c['id']}/to-library").json()
+    pics = []
+    for i in range(4):
+        p = Path(settings.assets_dir) / "uploads" / f"m{i}.png"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (40 + i, 60), (10 * i, 50, 90)).save(p)
+        pics.append(str(p))
+    client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": pics})
+    assert len(client.get(f"/api/asset-library/{lib['id']}/render-preview").json()["refs"]) == 2
+    out = client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"max_refs": "9"}}).json()
+    assert out["data"]["max_refs"] == 6  # clamped
+    assert len(client.get(f"/api/asset-library/{lib['id']}/render-preview").json()["refs"]) == 4  # 4-input workflow

@@ -35,6 +35,9 @@ from calliope.queue.manager import queue_manager
 
 TABLES = {"character": "characters", "location": "locations", "item": "items"}
 MAX_IMAGES = 6
+# References per render unless the asset says otherwise: two pictures (color face +
+# full body) measured as fast and as close as six (13 instead of 3 minutes).
+DEFAULT_MAX_REFS = 2
 LOOK_HINT = {
     "character": ("appearance", "the character sheet below"),
     "location": ("description", "visual description for image generation: place, architecture or landscape, "
@@ -91,10 +94,18 @@ def pick_refs(images: list[str], limit: int = MAX_IMAGES) -> list[str]:
     return ([first] + second + others)[:limit]
 
 
-def usable_refs(images: list[str], kind: str) -> tuple[list[str], int | None]:
-    """(references, workflow): as many pictures as an enabled workflow takes,
-    fewer when no workflow has that many image inputs; none -> text workflow."""
-    refs = pick_refs(images) if images else []
+def max_refs(entity: dict[str, Any]) -> int:
+    """How many of its pictures an asset sends as references (its own setting, 1..6)."""
+    try:
+        return max(1, min(MAX_IMAGES, int(entity.get("max_refs") or DEFAULT_MAX_REFS)))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_REFS
+
+
+def usable_refs(images: list[str], kind: str, limit: int = DEFAULT_MAX_REFS) -> tuple[list[str], int | None]:
+    """(references, workflow): up to ``limit`` pictures, as many as an enabled
+    workflow takes; fewer when none has that many image inputs; none -> text workflow."""
+    refs = pick_refs(images, limit) if images else []
     while refs:
         wf = _pick_workflow(len(refs), kind)
         if wf is not None:
@@ -392,7 +403,7 @@ def text_prompt(kind: str, entity: dict[str, Any]) -> str:
 def image_prompt(kind: str, entity: dict[str, Any]) -> tuple[str, list[str]]:
     """(prompt, reference pictures) as they go to ComfyUI for this asset."""
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
-    refs, _ = usable_refs(images, kind)
+    refs, _ = usable_refs(images, kind, max_refs(entity))
     if not refs:
         return text_prompt(kind, entity), []
     return reference_prompt(kind, entity, len(refs), all(is_grayscale(p) for p in images)), refs
@@ -417,7 +428,7 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
     """Queue the sheet/reference render with the asset's own pictures as references.
     ``target`` says where the worker writes the result (default: the project asset)."""
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
-    refs, wf = usable_refs(images, kind)
+    refs, wf = usable_refs(images, kind, max_refs(entity))
     if wf is None:
         return None
     # What is sent is what the Image prompt field shows: the user's own text, or

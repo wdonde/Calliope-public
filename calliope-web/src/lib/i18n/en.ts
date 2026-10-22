@@ -131,6 +131,8 @@ export const en = {
 	'assets.edit.promptReset': 'Back to automatic',
 	'assets.edit.sentRefs': 'Sent as reference pictures ({n})',
 	'assets.edit.noRefs': 'none — the prompt alone',
+	'assets.edit.maxRefs': 'Reference pictures per render',
+	'assets.edit.maxRefsHint': 'How many of the pictures go in (image 1 color face, image 2 full body, then the rest). 2 is the fastest; each extra picture makes a render clearly slower.',
 	'assets.edit.button': 'Edit',
 	'assets.edit.title': 'Edit {name}',
 	'assets.edit.role': 'Role',

@@ -25,6 +25,7 @@ from calliope.agent.asset_create import (
     describe,
     enqueue_from_images,
     image_prompt,
+    max_refs,
     prompt_is_auto,
     project_context,
 )
@@ -55,9 +56,9 @@ TABLES = {"character": "characters", "location": "locations", "item": "items"}
 FIELDS = {
     # Characters keep only their identity (CHARACTER INFORMATION); outfit,
     # personality and role belong to each project (role travels as a tag).
-    "character": ("alias", "role", "appearance", "consistency_prompt"),
-    "location": ("description", "consistency_prompt"),
-    "item": ("description", "consistency_prompt"),
+    "character": ("alias", "role", "appearance", "consistency_prompt", "max_refs"),
+    "location": ("description", "consistency_prompt", "max_refs"),
+    "item": ("description", "consistency_prompt", "max_refs"),
 }
 IMAGES = {
     "character": ("sheet_path", "portrait_path"),
@@ -72,7 +73,7 @@ class LibraryUpdate(BaseModel):
     tags: list[str] | None = None
     # Text fields of the asset (appearance/description, role, age, personality,
     # consistency_prompt = the image prompt); only known fields of its kind are kept.
-    data: dict[str, str | None] | None = None
+    data: dict[str, Any] | None = None
     # The asset's own pictures in order; new paths (uploads, other Calliope images) are copied in.
     source_images: list[str] | None = None
 
@@ -260,6 +261,8 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
         for key, value in (fields.get("data") or {}).items():
             if key in FIELDS[asset["kind"]]:
                 data[key] = value
+        if "max_refs" in data:
+            data["max_refs"] = max_refs(data) if data["max_refs"] not in (None, "") else None
         if asset["kind"] == "character":
             # Per-project fields from older library entries do not belong here
             # (role is a library field: it is linked into the sheet).
