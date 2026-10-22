@@ -4,7 +4,9 @@
 	 * The backend describes the look (vision model when there are pictures) and
 	 * renders the sheet with the pictures as references (agent/asset_create.py).
 	 */
-	import { assetLibraryApi, playgroundApi, type AssetKind } from '$lib/api';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { toStore } from 'svelte/store';
+	import { assetLibraryApi, assetUrl, libraryApi, playgroundApi, type AssetKind } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
 	import { toast } from '$lib/toast';
 	import Modal from '$lib/components/ui/Modal.svelte';
@@ -27,14 +29,35 @@
 	const MAX = 6;
 	let name = $state('');
 	let notes = $state('');
-	let files = $state<File[]>([]);
+	/** A new file from disk, or an image Calliope already has (path). */
+	type Pic = { src: string; file?: File; path?: string };
+	let pics = $state<Pic[]>([]);
 	let generate = $state(true);
 	let busy = $state(false);
-	const previews = $derived(files.map((f) => URL.createObjectURL(f)));
+	let browsing = $state(false);
 
-	function addFiles(list: FileList | null) {
+	// Images already in Calliope (uploads and Playground results), newest first.
+	const existingQuery = createQuery(
+		toStore(() => ({ queryKey: ['library-media'], queryFn: libraryApi.list, enabled: open && browsing })),
+	);
+	const existing = $derived(
+		($existingQuery.data ?? []).filter((m) => m.kind === 'image').sort((a, b) => b.mtime.localeCompare(a.mtime)),
+	);
+	const chosenPaths = $derived(new Set(pics.map((p) => p.path).filter(Boolean)));
+
+	function addFiles(list: FileList | File[] | null) {
 		const images = Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
-		files = [...files, ...images].slice(0, MAX);
+		pics = [...pics, ...images.map((file) => ({ src: URL.createObjectURL(file), file }))].slice(0, MAX);
+	}
+
+	function toggleExisting(path: string) {
+		if (chosenPaths.has(path)) pics = pics.filter((p) => p.path !== path);
+		else if (pics.length < MAX) pics = [...pics, { src: assetUrl(path) ?? '', path }];
+	}
+
+	function onPaste(e: ClipboardEvent) {
+		const images = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+		if (images.length) addFiles(images);
 	}
 
 	async function submit() {
@@ -42,14 +65,15 @@
 		busy = true;
 		try {
 			const paths: string[] = [];
-			for (const f of files) paths.push((await playgroundApi.upload(f)).path);
+			for (const p of pics) paths.push(p.path ?? (await playgroundApi.upload(p.file!)).path);
 			const payload = { kind: current, name: name.trim(), prompt: notes, image_paths: paths, generate };
 			if (projectId) await assetLibraryApi.create(projectId, payload);
 			else await assetLibraryApi.createInLibrary(payload);
 			toast.success(t('assets.newCreated', { name: name.trim() }));
 			name = '';
 			notes = '';
-			files = [];
+			pics = [];
+			browsing = false;
 			open = false;
 			oncreated();
 		} catch (err) {
@@ -61,7 +85,7 @@
 </script>
 
 <Modal bind:open title={t(`assets.new.${current}`)} size="lg" onclose={() => (open = false)}>
-	<div class="form">
+	<div class="form" onpaste={onPaste}>
 		{#if chooseKind}
 			<div class="kinds">
 				{#each ['character', 'location', 'item'] as const as k (k)}
@@ -80,20 +104,38 @@
 		<div>
 			<span class="field-label">{t('assets.new.pictures', { max: MAX })}</span>
 			<div class="pics">
-				{#each previews as src, i (src)}
+				{#each pics as p, i (p.src)}
 					<figure>
-						<img {src} alt="" />
-						<button type="button" aria-label={t('common.delete')} onclick={() => (files = files.filter((_, k) => k !== i))}>×</button>
+						<img src={p.src} alt="" />
+						<button type="button" aria-label={t('common.delete')} onclick={() => (pics = pics.filter((_, k) => k !== i))}>×</button>
 					</figure>
 				{/each}
-				{#if files.length < MAX}
-					<label class="add">
+				{#if pics.length < MAX}
+					<label class="add" title={t('assets.new.fromDisk')}>
 						+
 						<input type="file" accept="image/*" multiple hidden onchange={(e) => addFiles(e.currentTarget.files)} />
 					</label>
 				{/if}
 			</div>
-			<p class="muted small">{files.length ? t('assets.new.picturesHint') : t('assets.new.noPicturesHint')}</p>
+			<div class="pick-row">
+				<button type="button" class="link" onclick={() => (browsing = !browsing)}>
+					{browsing ? t('assets.new.hideExisting') : t('assets.new.fromExisting')}
+				</button>
+				<span class="muted small">{t('assets.new.pasteHint')}</span>
+			</div>
+			{#if browsing}
+				<div class="existing">
+					{#each existing as m (m.path)}
+						<button type="button" class="thumb" class:chosen={chosenPaths.has(m.path)} title={m.name}
+							disabled={!chosenPaths.has(m.path) && pics.length >= MAX} onclick={() => toggleExisting(m.path)}>
+							<img src={assetUrl(m.path)} alt={m.name} loading="lazy" />
+						</button>
+					{:else}
+						<p class="muted small">{$existingQuery.isLoading ? '…' : t('assets.new.noExisting')}</p>
+					{/each}
+				</div>
+			{/if}
+			<p class="muted small">{pics.length ? t('assets.new.picturesHint') : t('assets.new.noPicturesHint')}</p>
 		</div>
 		<label class="check">
 			<input type="checkbox" bind:checked={generate} />
@@ -176,6 +218,53 @@
 		color: var(--text-muted);
 		cursor: pointer;
 		border-style: dashed;
+	}
+	.pick-row {
+		display: flex;
+		gap: 12px;
+		align-items: baseline;
+		margin-top: 6px;
+	}
+	.link {
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--accent);
+		cursor: pointer;
+		font-size: 12px;
+	}
+	.existing {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+		gap: 6px;
+		max-height: 240px;
+		overflow-y: auto;
+		margin-top: 8px;
+		padding: 4px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+	}
+	.thumb {
+		padding: 0;
+		border: 2px solid transparent;
+		border-radius: 6px;
+		background: none;
+		cursor: pointer;
+		aspect-ratio: 1;
+		overflow: hidden;
+	}
+	.thumb img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+	.thumb.chosen {
+		border-color: var(--accent);
+	}
+	.thumb:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 	.muted {
 		color: var(--text-muted);

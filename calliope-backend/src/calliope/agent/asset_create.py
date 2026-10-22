@@ -177,7 +177,7 @@ async def create_asset(project_id: int, *, kind: str, name: str, prompt: str = "
                        generate: bool = True) -> dict[str, Any]:
     images = keep_images(project_id, kind, image_paths or [])
     look = await describe(kind, name, prompt, images)
-    tags = tags_json(name_tags(name) + list(look["tags"]))
+    tags = tags_json(name_tags(name) + list(look["tags"]), name)
     conn = get_db(settings.db_path)
     try:
         if kind == "character":
@@ -244,7 +244,7 @@ async def create_library_asset(*, kind: str, name: str, prompt: str = "", image_
     conn = get_db(settings.db_path)
     try:
         conn.execute("UPDATE library_assets SET category = ?, tags = ?, data_json = ? WHERE id = ?",
-                     (look["category"], tags_json(name_tags(name) + list(look["tags"])),
+                     (look["category"], tags_json(name_tags(name) + list(look["tags"]), name),
                       json.dumps(data, ensure_ascii=False), lib_id))
         conn.commit()
         row = row_to_dict(conn.execute("SELECT * FROM library_assets WHERE id = ?", (lib_id,)).fetchone())

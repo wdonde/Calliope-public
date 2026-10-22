@@ -353,7 +353,7 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                             "appearance": appearance,
                             "personality": entity.get("personality", ""),
                         }
-                        tags = tags_json(name_tags(row_seed["name"]) + list(entity.get("tags") or []))
+                        tags = tags_json(name_tags(row_seed["name"]) + list(entity.get("tags") or []), row_seed["name"])
                         # Seed with the published sheet template so Assets shows a real prompt, not a hidden blob.
                         conn.execute(
                             """
@@ -381,7 +381,7 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                                 "project_id": project_id,
                                 **loc_seed,
                                 "consistency_prompt": location_reference_prompt(loc_seed),
-                                "tags": tags_json(entity.get("tags")),
+                                "tags": tags_json(entity.get("tags"), entity.get("name")),
                             },
                         )
                         seeded["locations"] += 1
@@ -397,7 +397,7 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                                 "project_id": project_id,
                                 **item_seed,
                                 "consistency_prompt": item_reference_prompt(item_seed),
-                                "tags": tags_json(entity.get("tags")),
+                                "tags": tags_json(entity.get("tags"), entity.get("name")),
                                 "category": normalize_category(entity.get("category")),
                             },
                         )

@@ -45,8 +45,12 @@ def normalize_tags(tags: Any) -> list[str]:
     return out[:MAX_TAGS]
 
 
-def tags_json(tags: Any) -> str:
-    return json.dumps(normalize_tags(tags), ensure_ascii=False)
+def tags_json(tags: Any, name: str | None = None) -> str:
+    """Stored form; with ``name``, an alias that only repeats the name is dropped."""
+    out = normalize_tags(tags)
+    if name:
+        out = [t for t in out if t.lower() != f"alias:{name.strip().lower()}"]
+    return json.dumps(out, ensure_ascii=False)
 
 
 def name_tags(name: str) -> list[str]:
@@ -133,7 +137,8 @@ Respond ONLY with JSON:
                 e = by_id.get(s.get("id")) if isinstance(s, dict) else None
                 if not e:
                     continue
-                tags = normalize_tags((e.get("tags") or []) + name_tags(e["name"]) + list(s.get("tags") or []))
+                tags = json.loads(tags_json((e.get("tags") or []) + name_tags(e["name"]) + list(s.get("tags") or []),
+                                            e["name"]))
                 category = e.get("category") if table == "items" else None
                 if table == "items" and not category:
                     category = normalize_category(s.get("category"))
