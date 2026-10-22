@@ -475,6 +475,9 @@
 				<input type="checkbox" bind:checked={fillFields} />
 				{t('projects.fillFields')}
 			</label>
+			{#if !ideaTooLong && outlineDraft.length}
+				<p class="field-warn">{t('story.recondenseWarn')}</p>
+			{/if}
 		</div>
 	{/if}
 </Card>

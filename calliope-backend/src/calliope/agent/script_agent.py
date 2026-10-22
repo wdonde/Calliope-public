@@ -109,7 +109,7 @@ async def _request_chunk(
         if used:
             passage += "\nDialogue lines already used (do not reuse):\n" + "\n".join(f"- {ln}" for ln in used)
         messages[1] = {**messages[1], "content": messages[1]["content"] + "\n\n" + passage}
-    result = await generate_structured(messages, temperature=0.7)
+    result = await generate_structured(messages, temperature=0.7, role="writer")
     scenes = result.get("scenes") or []
     if len(scenes) < chunk_scenes:
         # Retry only this chunk — the old code retried the ENTIRE script.
@@ -124,7 +124,7 @@ async def _request_chunk(
                 ),
             },
         ]
-        result = await generate_structured(retry_messages, temperature=0.5)
+        result = await generate_structured(retry_messages, temperature=0.5, role="writer")
         scenes = result.get("scenes") or []
     return [_normalize_scene(sc) for sc in scenes[:chunk_scenes] if isinstance(sc, dict)]
 

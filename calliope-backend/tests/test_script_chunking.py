@@ -54,7 +54,7 @@ def _scenes(n: int, start: int = 1):
 def test_big_board_splits_into_chunks(monkeypatch):
     calls: list[int] = []
 
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         user = messages[1]["content"]
         # THIS CHUNK: exactly N scenes
         n = 0
@@ -85,7 +85,7 @@ def test_big_board_splits_into_chunks(monkeypatch):
 def test_small_board_single_call(monkeypatch):
     calls: list[int] = []
 
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         n = 3
         for line in messages[1]["content"].splitlines():
             if line.startswith("THIS CHUNK:"):
@@ -112,7 +112,7 @@ def test_restarts_order_index_is_renumbered(monkeypatch):
     """A model that restarts order_index at 1 for every chunk must still
     produce a 1..N board."""
 
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         # Always returns order_index 1..n regardless of the chunk requested
         n = 0
         for line in messages[1]["content"].splitlines():
@@ -137,7 +137,7 @@ def test_restarts_order_index_is_renumbered(monkeypatch):
 def test_short_chunk_retries_only_that_chunk(monkeypatch):
     calls: list[int] = []
 
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         n = 0
         for line in messages[1]["content"].splitlines():
             if line.startswith("THIS CHUNK:"):
@@ -167,7 +167,7 @@ def test_short_chunk_retries_only_that_chunk(monkeypatch):
 def test_continuity_tail_is_passed_to_next_chunk(monkeypatch):
     seen_tails: list[bool] = []
 
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         user = messages[1]["content"]
         seen_tails.append("Scenes already written" in user)
         n = 0
@@ -276,7 +276,7 @@ def test_oversized_script_durations_shrink_to_target(monkeypatch):
     from calliope.config import settings
     from calliope.db import get_db
 
-    async def fake_structured(messages, temperature=0.7):
+    async def fake_structured(messages, temperature=0.7, **kw):
         n = 0
         for line in messages[1]["content"].splitlines():
             if line.startswith("THIS CHUNK:"):

@@ -401,6 +401,7 @@ export const de: Dict = {
 	'story.outlinePart': 'Part {n}',
 	'story.outlineSave': 'Save outline',
 	'story.outlineSaved': 'Outline saved',
+	'story.recondenseWarn': 'Summarizing again rebuilds the Story idea and the novel outline from the novel, replacing your edits to both.',
 	'story.ideaTooLongHint': 'Über {n} Zeichen — die eingebauten Generatoren verweigern das. Lass die KI eine Kurzfassung schreiben; der volle Text bleibt erhalten.',
 	'story.draftPromptTitle': 'Entwurfs-Prompt',
 	'story.promptExplain': 'Das fertige Briefing, mit dem der Agent die Story strukturiert.',

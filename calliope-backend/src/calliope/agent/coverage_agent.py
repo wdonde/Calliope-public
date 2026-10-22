@@ -239,7 +239,7 @@ async def expand_scene_coverage(
             )
             if guidance:
                 messages[1]["content"] += f"\n\nExtra direction from the user: {guidance}"
-            result = await generate_structured(messages, temperature=0.5)
+            result = await generate_structured(messages, temperature=0.5, role="writer")
             raw_clips = result.get("clips") or []
             if not raw_clips:
                 retry = [
@@ -251,7 +251,7 @@ async def expand_scene_coverage(
                         "\"clips\" JSON array with at least one clip.",
                     },
                 ]
-                result = await generate_structured(retry, temperature=0.3)
+                result = await generate_structured(retry, temperature=0.3, role="writer")
                 raw_clips = result.get("clips") or []
             if not raw_clips:
                 raise ValueError(

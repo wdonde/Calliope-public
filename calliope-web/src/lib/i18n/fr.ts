@@ -401,6 +401,7 @@ export const fr: Dict = {
 	'story.outlinePart': 'Part {n}',
 	'story.outlineSave': 'Save outline',
 	'story.outlineSaved': 'Outline saved',
+	'story.recondenseWarn': 'Summarizing again rebuilds the Story idea and the novel outline from the novel, replacing your edits to both.',
 	'story.ideaTooLongHint': 'Over {n} characters — the built-in generators refuse this. Let the AI condense it; the full text is kept.',
 	'story.draftPromptTitle': 'Prompt de rédaction',
 	'story.promptExplain': "Le brief final que l'agent utilise pour structurer l'histoire.",

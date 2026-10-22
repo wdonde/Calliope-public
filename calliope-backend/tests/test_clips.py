@@ -303,7 +303,7 @@ def test_expand_scene_coverage_replaces_clips(client, monkeypatch):
     )
     scene_id = scene["id"]
 
-    async def fake_llm(messages, temperature=0.5):
+    async def fake_llm(messages, temperature=0.5, **kw):
         return {
             "clips": [
                 {
@@ -352,7 +352,7 @@ def test_expand_all_scenes_none_ids(client, monkeypatch):
     _add_scene(client, pid, 1, action="A")
     _add_scene(client, pid, 2, action="B")
 
-    async def fake_llm(messages, temperature=0.5):
+    async def fake_llm(messages, temperature=0.5, **kw):
         return {
             "clips": [
                 {"description": "shot", "dialog_lines_covered": [], "duration_sec": 5},
@@ -380,7 +380,7 @@ def test_expand_all_endpoint_honors_scene_ids(client, monkeypatch):
     s1 = _add_scene(client, pid, 1, action="Scene one action.")
     s2 = _add_scene(client, pid, 2, action="Scene two action.")
 
-    async def fake_llm(messages, temperature=0.5):
+    async def fake_llm(messages, temperature=0.5, **kw):
         return {
             "clips": [
                 {"description": "shot A", "dialog_lines_covered": [], "duration_sec": 5},
@@ -391,7 +391,7 @@ def test_expand_all_endpoint_honors_scene_ids(client, monkeypatch):
     # The prompt names scenes by ORDER index, not id — spy on order instead.
     seen_orders: list[int] = []
 
-    async def spy(messages, temperature=0.5):
+    async def spy(messages, temperature=0.5, **kw):
         import re
 
         m = re.search(r"^Scene (\d+):", messages[1]["content"], re.MULTILINE)

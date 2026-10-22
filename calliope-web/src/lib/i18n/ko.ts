@@ -401,6 +401,7 @@ export const ko: Dict = {
 	'story.outlinePart': 'Part {n}',
 	'story.outlineSave': 'Save outline',
 	'story.outlineSaved': 'Outline saved',
+	'story.recondenseWarn': 'Summarizing again rebuilds the Story idea and the novel outline from the novel, replacing your edits to both.',
 	'story.ideaTooLongHint': 'Over {n} characters — the built-in generators refuse this. Let the AI condense it; the full text is kept.',
 	'story.draftPromptTitle': '초안 프롬프트',
 	'story.promptExplain': '에이전트가 스토리를 구성할 때 사용하는 완성된 브리프입니다.',
