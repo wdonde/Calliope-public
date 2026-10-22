@@ -147,3 +147,37 @@ def test_library_asset_is_created_rendered_and_carried_into_projects(client, mon
     item = client.post(f"/api/asset-library/{a['id']}/to-project", json={"project_id": pid}).json()
     assert item["category"] == "weapon" and Path(item["reference_image_path"]).exists()
     assert len(item["source_images"]) == 1 and Path(item["source_images"][0]).exists()
+
+
+def test_library_asset_edit_shows_projects_and_renders_from_prompt(client):
+    from calliope.config import settings
+
+    wf = {"10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+          "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}
+    client.post("/api/workflows", json={"name": "Klein text", "kind": "image", "workflow_json": wf})
+    a = client.post("/api/projects", json={"title": "Alien Nation"}).json()["id"]
+    b = client.post("/api/projects", json={"title": "Sequel"}).json()["id"]
+    c = client.post(f"/api/projects/{a}/characters", json={"name": "Reed", "appearance": "grey hair"}).json()
+    lib = client.post(f"/api/projects/{a}/character/{c['id']}/to-library").json()
+    client.post(f"/api/asset-library/{lib['id']}/to-project", json={"project_id": b})
+    listed = client.get("/api/asset-library").json()[0]
+    assert listed["source_project"] == {"id": a, "title": "Alien Nation"}
+    assert listed["used_in"] == [{"id": b, "title": "Sequel"}]
+
+    pic = Path(settings.assets_dir) / "uploads" / "reed.png"
+    pic.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (40, 40), "white").save(pic)
+    edited = client.patch(f"/api/asset-library/{lib['id']}", json={
+        "name": "Edward Reed", "data": {"appearance": "grey buzz cut", "consistency_prompt": "SHEET of Reed",
+                                         "bogus": "x"},
+        "source_images": [str(pic)]}).json()
+    assert edited["name"] == "Edward Reed" and edited["data"]["appearance"] == "grey buzz cut"
+    assert "bogus" not in edited["data"] and edited["used_in"] == [{"id": b, "title": "Sequel"}]
+    assert len(edited["data"]["source_images"]) == 1 and "/library/" in edited["data"]["source_images"][0]
+    assert client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": ["/etc/passwd"]}).status_code == 422
+
+    cleared = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": []}).json()
+    assert cleared["data"]["source_images"] == []
+    job_id = client.post(f"/api/asset-library/{lib['id']}/from-images").json()["job_id"]
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert (job.get("payload") or json.loads(job["payload_json"]))["input_values"]["10"] == "SHEET of Reed"

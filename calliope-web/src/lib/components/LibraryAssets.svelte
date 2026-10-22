@@ -10,6 +10,7 @@
 	import { toast } from '$lib/toast';
 	import AssetTags from '$lib/components/AssetTags.svelte';
 	import NewAssetDialog from '$lib/components/NewAssetDialog.svelte';
+	import LibraryAssetEditor from '$lib/components/LibraryAssetEditor.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
@@ -24,6 +25,8 @@
 			(q.state.data ?? []).some((a) => a.data.pending_job) ? 5000 : false,
 	});
 	let newOpen = $state(false);
+	let editing = $state<LibraryAsset | null>(null);
+	let editOpen = $state(false);
 	const projectsQuery = createQuery({ queryKey: ['projects'], queryFn: projects.list });
 
 	let kind = $state<AssetKind | 'all'>('all');
@@ -90,6 +93,7 @@
 	<Button size="sm" variant="primary" onclick={() => (newOpen = true)}>{t('assets.new.asset')}</Button>
 </div>
 
+<LibraryAssetEditor bind:open={editOpen} asset={editing} onsaved={refresh} />
 <NewAssetDialog bind:open={newOpen} kind={kind === 'all' ? 'character' : kind} chooseKind oncreated={refresh} />
 
 {#if ($libraryQuery.data ?? []).length === 0 && !$libraryQuery.isLoading}
@@ -123,6 +127,14 @@
 					/>
 					{#if a.data.pending_job}<p class="muted small">{t('assets.rendering')}</p>{/if}
 					<p class="desc muted small">{String(a.data.appearance ?? a.data.description ?? '')}</p>
+					<p class="projects small">
+						{#if a.source_project}<span>{t('assets.edit.from', { project: a.source_project.title })}</span>{/if}
+						<span>
+							{a.used_in?.length
+								? t('assets.edit.usedIn', { projects: a.used_in.map((p) => p.title).join(', ') })
+								: t('assets.edit.unused')}
+						</span>
+					</p>
 					<div class="row">
 						<select class="field-select" bind:value={target[a.id]}>
 							<option value="">{t('assets.chooseProject')}</option>
@@ -132,6 +144,12 @@
 						</select>
 						<Button size="sm" variant="secondary" disabled={!target[a.id]} onclick={() => addTo(a)}>
 							{t('assets.addToProject')}
+						</Button>
+						<Button size="sm" variant="ghost" title={t('assets.edit.button')} onclick={() => {
+							editing = a;
+							editOpen = true;
+						}}>
+							<Icon name="edit" size={14} />
 						</Button>
 						<Button size="sm" variant="ghost" title={t('common.delete')} onclick={() => {
 								deleting = a;
@@ -239,6 +257,13 @@
 		line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
+	}
+	.projects {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin: 0;
+		color: var(--text-secondary);
 	}
 	.row {
 		display: flex;

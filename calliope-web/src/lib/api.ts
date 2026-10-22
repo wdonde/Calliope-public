@@ -204,6 +204,9 @@ export interface LibraryAsset {
 	image_path: string | null;
 	source_project_id: number | null;
 	created_at: string;
+	/** Project the asset was saved from, and projects holding a copy. */
+	source_project?: { id: number; title: string } | null;
+	used_in?: { id: number; title: string }[];
 }
 
 export const assetLibraryApi = {
@@ -218,7 +221,16 @@ export const assetLibraryApi = {
 			method: 'POST',
 			body: JSON.stringify({ project_id: projectId }),
 		}),
-	update: (assetId: number, payload: { name?: string; category?: string | null; tags?: string[] }) =>
+	update: (
+		assetId: number,
+		payload: {
+			name?: string;
+			category?: string | null;
+			tags?: string[];
+			data?: Record<string, string | null>;
+			source_images?: string[];
+		},
+	) =>
 		api<LibraryAsset>(`/api/asset-library/${assetId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 	remove: (assetId: number) => api<{ ok: boolean }>(`/api/asset-library/${assetId}`, { method: 'DELETE' }),
 	create: (

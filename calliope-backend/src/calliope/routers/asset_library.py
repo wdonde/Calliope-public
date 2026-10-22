@@ -43,6 +43,11 @@ class LibraryUpdate(BaseModel):
     name: str | None = None
     category: str | None = None
     tags: list[str] | None = None
+    # Text fields of the asset (appearance/description, role, age, personality,
+    # consistency_prompt = the image prompt); only known fields of its kind are kept.
+    data: dict[str, str | None] | None = None
+    # The asset's own pictures in order; new paths (uploads, other Calliope images) are copied in.
+    source_images: list[str] | None = None
 
 
 class AddToProject(BaseModel):
@@ -77,6 +82,25 @@ def _out(row) -> dict[str, Any]:
     return d
 
 
+def _add_projects(assets: list[dict[str, Any]]) -> None:
+    """Where each asset came from and which projects hold a copy (tag library:<id>)."""
+    conn = get_db(settings.db_path)
+    try:
+        titles = {r["id"]: r["title"] for r in conn.execute("SELECT id, title FROM projects")}
+        used: dict[int, set[int]] = {}
+        for table in TABLES.values():
+            for row in conn.execute(f"SELECT project_id, tags FROM {table} WHERE tags LIKE '%library:%'"):
+                for tag in json.loads(row["tags"] or "[]"):
+                    if tag.startswith("library:") and tag[8:].isdigit():
+                        used.setdefault(int(tag[8:]), set()).add(row["project_id"])
+    finally:
+        conn.close()
+    for a in assets:
+        src = a.get("source_project_id")
+        a["source_project"] = {"id": src, "title": titles[src]} if src in titles else None
+        a["used_in"] = [{"id": p, "title": titles[p]} for p in sorted(used.get(a["id"], ())) if p in titles]
+
+
 def _matches(asset: dict[str, Any], q: str) -> bool:
     text = " ".join([asset["name"], asset.get("category") or "", *asset["tags"],
                      *(str(v) for v in asset["data"].values() if isinstance(v, str))]).lower()
@@ -91,6 +115,7 @@ async def list_library(kind: Kind | None = None, q: str | None = None, tag: str 
     finally:
         conn.close()
     assets = [_out(r) for r in rows]
+    _add_projects(assets)
     if kind:
         assets = [a for a in assets if a["kind"] == kind]
     if tag:
@@ -159,23 +184,41 @@ async def add_to_project(asset_id: int, payload: AddToProject) -> dict[str, Any]
 
 @router.patch("/asset-library/{asset_id}")
 async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[str, Any]:
-    data = payload.model_dump(exclude_unset=True)
-    if "tags" in data:
-        data["tags"] = tags_json(data["tags"])
-    if "category" in data:
-        data["category"] = normalize_category(data["category"])
+    fields = payload.model_dump(exclude_unset=True)
     conn = get_db(settings.db_path)
     try:
-        if not conn.execute("SELECT id FROM library_assets WHERE id = ?", (asset_id,)).fetchone():
+        row = conn.execute("SELECT * FROM library_assets WHERE id = ?", (asset_id,)).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Library asset not found")
-        if data:
-            sets = ", ".join(f"{k} = :{k}" for k in data)
-            conn.execute(f"UPDATE library_assets SET {sets}, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
-                         {**data, "id": asset_id})
+        asset = _out(row)
+        sets: dict[str, Any] = {}
+        if fields.get("name"):
+            sets["name"] = fields["name"].strip()
+        if "category" in fields:
+            sets["category"] = normalize_category(fields["category"])
+        if "tags" in fields:
+            sets["tags"] = tags_json(fields["tags"], sets.get("name") or asset["name"])
+        data = dict(asset["data"])
+        for key, value in (fields.get("data") or {}).items():
+            if key in FIELDS[asset["kind"]]:
+                data[key] = value
+        if "source_images" in fields:
+            _check_upload_paths(fields["source_images"] or [])
+            keep = _library_dir(asset_id) / "source"
+            data["source_images"] = [c for c in (p if Path(p).parent == keep else _copy(p, keep)
+                                                 for p in fields["source_images"] or []) if c]
+        if "data" in fields or "source_images" in fields:
+            sets["data_json"] = json.dumps(data, ensure_ascii=False)
+        if sets:
+            cols = ", ".join(f"{k} = :{k}" for k in sets)
+            conn.execute(f"UPDATE library_assets SET {cols}, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+                         {**sets, "id": asset_id})
             conn.commit()
-        return _out(conn.execute("SELECT * FROM library_assets WHERE id = ?", (asset_id,)).fetchone())
+        out = _out(conn.execute("SELECT * FROM library_assets WHERE id = ?", (asset_id,)).fetchone())
     finally:
         conn.close()
+    _add_projects([out])
+    return out
 
 
 @router.delete("/asset-library/{asset_id}")
@@ -249,8 +292,7 @@ async def library_from_images(asset_id: int) -> dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="Library asset not found")
     a = _out(row)
-    if not a["data"].get("source_images"):
-        raise HTTPException(status_code=422, detail="This asset has no pictures of its own.")
+    # Without own pictures this renders from the prompt alone.
     job = enqueue_from_images(scratch, a["kind"], {"id": asset_id, "name": a["name"], **a["data"]},
                               {"library_asset_id": asset_id})
     if job is None:
