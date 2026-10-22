@@ -6,7 +6,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from calliope.comfyui.parser import parse_dynamic_inputs, parse_dynamic_outputs
-from calliope.comfyui.profiles import detect_prompt_profile
+from calliope.agent.workflow_format import check_format, draft_skill
+from calliope.comfyui.profiles import detect_prompt_profile, detect_prompt_skill
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
 from calliope.models.schemas import WorkflowAnalyze, WorkflowCreate, WorkflowUpdate
@@ -32,6 +33,7 @@ async def analyze_workflow(payload: WorkflowAnalyze) -> dict[str, Any]:
         "inputs": inputs,
         "outputs": outputs,
         "suggested_profile": detect_prompt_profile(payload.workflow_json),
+        "suggested_skill": detect_prompt_skill(payload.workflow_json),
     }
 
 
@@ -114,6 +116,9 @@ async def create_workflow(payload: WorkflowCreate) -> dict[str, Any]:
     inputs = parse_dynamic_inputs(payload.workflow_json)
     outputs = parse_dynamic_outputs(payload.workflow_json)
     profile = payload.prompt_profile or detect_prompt_profile(payload.workflow_json)
+    skill = payload.prompt_skill or (
+        detect_prompt_skill(payload.workflow_json) if profile == "skill" else None
+    )
     conn = get_db(settings.db_path)
     try:
         # Byte-identical re-imports are the main way the library fills up with
@@ -131,8 +136,8 @@ async def create_workflow(payload: WorkflowCreate) -> dict[str, Any]:
             """
             INSERT INTO workflows (name, kind, workflow_json, input_schema,
                                    output_schema, description, prompt_profile,
-                                   is_enabled, strict_mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+                                   prompt_skill, is_enabled, strict_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
             """,
             (
                 payload.name,
@@ -142,6 +147,7 @@ async def create_workflow(payload: WorkflowCreate) -> dict[str, Any]:
                 json.dumps(outputs),
                 payload.description,
                 profile,
+                skill,
                 1 if payload.strict_mode else 0,
             ),
         )
@@ -150,6 +156,53 @@ async def create_workflow(payload: WorkflowCreate) -> dict[str, Any]:
         return _serialize_workflow(row)
     finally:
         conn.close()
+
+
+@router.post("/{workflow_id}/check-format")
+async def check_workflow_format(workflow_id: int) -> dict[str, Any]:
+    """Suggest a prompt format (and skill) for a workflow; changes nothing.
+
+    Known model families are matched by node type; anything else is asked of
+    the LLM, which may also answer that no existing skill fits.
+    """
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    wf = _serialize_workflow(row)
+    try:
+        result = await check_format(wf["workflow_json"], kind=wf["kind"])
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        **result,
+        "current_profile": wf.get("prompt_profile") or "prose",
+        "current_skill": wf.get("prompt_skill"),
+    }
+
+
+@router.post("/{workflow_id}/draft-skill")
+async def draft_workflow_skill(workflow_id: int) -> dict[str, Any]:
+    """Have the LLM draft a prompt skill for this workflow's model family.
+
+    The draft is saved as a new skill folder (never over an existing one) for
+    the user to review under Settings -> Agent skills.
+    """
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    wf = _serialize_workflow(row)
+    try:
+        return await draft_skill(wf["workflow_json"], kind=wf["kind"], workflow_name=wf["name"])
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/{workflow_id}")

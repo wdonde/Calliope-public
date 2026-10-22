@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { workflows, type Workflow, type ComfyDynamicInput, type ComfyDynamicOutput } from '$lib/api';
+	import { agentApi, workflows, type Workflow, type ComfyDynamicInput, type ComfyDynamicOutput } from '$lib/api';
 	import { toast } from '$lib/toast';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
@@ -26,6 +26,7 @@
 	let wfName = $state('');
 	let wfKind = $state<'image' | 'video'>('image');
 	let wfProfile = $state('prose');
+	let wfSkill = $state<string | null>(null);
 	let wfDescription = $state('');
 	let wfStrict = $state(true);
 	let saving = $state(false);
@@ -34,6 +35,52 @@
 	let editName = $state('');
 	let editDescription = $state('');
 	let editProfile = $state('prose');
+	let editSkill = $state<string | null>(null);
+	type FormatCheck = Awaited<ReturnType<typeof workflows.checkFormat>>;
+	let formatCheck = $state<FormatCheck | null>(null);
+	let checking = $state(false);
+	let drafting = $state(false);
+
+	// Skills that hold prompt rules for a model (not task recipes or the novel summary).
+	const NON_PROMPT_SKILLS = ['novel-condense', 'shot-composer-blockout', 'scene-to-video', 'character-consistency'];
+	const skillsQuery = createQuery({ queryKey: ['skills'], queryFn: agentApi.listSkills });
+	const promptSkills = $derived(
+		($skillsQuery.data ?? []).filter((sk) => !NON_PROMPT_SKILLS.includes(sk.name)),
+	);
+
+	async function checkFormat(id: number) {
+		checking = true;
+		formatCheck = null;
+		try {
+			formatCheck = await workflows.checkFormat(id);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		} finally {
+			checking = false;
+		}
+	}
+
+	function applyFormatCheck() {
+		if (!formatCheck) return;
+		editProfile = formatCheck.profile;
+		editSkill = formatCheck.skill;
+		formatCheck = null;
+	}
+
+	async function draftSkill(id: number) {
+		drafting = true;
+		try {
+			const res = await workflows.draftSkill(id);
+			await client.invalidateQueries({ queryKey: ['skills'] });
+			editProfile = 'skill';
+			editSkill = res.name;
+			toast.success(t('wf.skillDrafted', { name: res.name }));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		} finally {
+			drafting = false;
+		}
+	}
 	let editStrict = $state(true);
 	let editJson = $state('');
 	let originalJson = $state('');
@@ -59,6 +106,7 @@
 			analyzedOutputs = result.outputs;
 			analyzed = true;
 			wfProfile = result.suggested_profile ?? 'prose';
+			wfSkill = result.suggested_skill ?? null;
 			if (!wfName.trim() && uploadedFileName) {
 				wfName = uploadedFileName.replace(/\.json$/i, '');
 			}
@@ -91,6 +139,7 @@
 				workflow_json: pendingJson,
 				description: wfDescription.trim() || undefined,
 				prompt_profile: wfProfile,
+				prompt_skill: wfProfile === 'skill' ? wfSkill : null,
 				strict_mode: wfStrict,
 			});
 			jsonText = '';
@@ -104,6 +153,7 @@
 			wfDescription = '';
 			wfKind = 'image';
 			wfProfile = 'prose';
+			wfSkill = null;
 			wfStrict = true;
 			client.invalidateQueries({ queryKey: ['workflows'] });
 			toast.success(t('wf.savedToLibrary', { name }));
@@ -119,6 +169,8 @@
 		editName = wf.name;
 		editDescription = wf.description ?? '';
 		editProfile = wf.prompt_profile ?? 'prose';
+		editSkill = wf.prompt_skill ?? null;
+		formatCheck = null;
 		editStrict = wf.strict_mode ?? true;
 		const j = JSON.stringify(wf.workflow_json ?? {}, null, 2);
 		editJson = j;
@@ -152,6 +204,7 @@
 				name: editName.trim(),
 				description: editDescription.trim(),
 				prompt_profile: editProfile,
+				prompt_skill: editProfile === 'skill' ? editSkill : null,
 				strict_mode: editStrict,
 			};
 			if (showJsonEditor && jsonEdited && editJson.trim()) {
@@ -356,8 +409,20 @@
 				<select class="field-select" bind:value={wfProfile}>
 					<option value="prose">{t('wf.profileProse')}</option>
 					<option value="minimax_h3_ref">{t('wf.profileH3')}</option>
+					<option value="skill">{t('wf.profileSkill')}</option>
 				</select>
 			</label>
+			{#if wfProfile === 'skill'}
+				<label class="field">
+					<span class="field-label">{t('wf.promptSkill')}</span>
+					<select class="field-select" bind:value={wfSkill}>
+						<option value={null}>{t('wf.noSkill')}</option>
+						{#each promptSkills as sk (sk.name)}
+							<option value={sk.name}>{sk.name}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
 			<label class="field">
 				<span class="field-label">{t('common.description')}</span>
 				<textarea
@@ -418,8 +483,54 @@
 								<select class="field-select" bind:value={editProfile}>
 									<option value="prose">{t('wf.profileProse')}</option>
 									<option value="minimax_h3_ref">{t('wf.profileH3')}</option>
+									<option value="skill">{t('wf.profileSkill')}</option>
 								</select>
 							</label>
+							{#if editProfile === 'skill'}
+								<label class="field">
+									<span class="field-label">{t('wf.promptSkill')}</span>
+									<select class="field-select" bind:value={editSkill}>
+										<option value={null}>{t('wf.noSkill')}</option>
+										{#each promptSkills as sk (sk.name)}
+											<option value={sk.name}>{sk.name}</option>
+										{/each}
+										{#if editSkill && !promptSkills.some((sk) => sk.name === editSkill)}
+											<option value={editSkill}>{editSkill}</option>
+										{/if}
+									</select>
+								</label>
+							{/if}
+							{#if wf.kind === 'video'}
+								<div class="row format-tools">
+									<Button size="sm" variant="secondary" loading={checking} onclick={() => checkFormat(wf.id)}>
+										{checking ? t('wf.checking') : t('wf.checkFormat')}
+									</Button>
+									<Button size="sm" variant="ghost" loading={drafting} onclick={() => draftSkill(wf.id)}>
+										{drafting ? t('wf.drafting') : t('wf.draftSkill')}
+									</Button>
+								</div>
+								{#if formatCheck}
+									<div class="format-check">
+										<p>
+											{t('wf.checkResult', {
+												family: formatCheck.family ?? '?',
+												format: formatCheck.profile,
+												skill: formatCheck.skill ? ` · ${formatCheck.skill}` : '',
+												source: formatCheck.source === 'llm' ? 'LLM' : 'nodes',
+											})}
+										</p>
+										{#if formatCheck.reason}<p class="field-hint">{formatCheck.reason}</p>{/if}
+										{#if formatCheck.profile === editProfile && (formatCheck.skill ?? null) === (editProfile === 'skill' ? editSkill : null)}
+											<p class="field-hint">{t('wf.checkMatches')}</p>
+										{:else}
+											<Button size="sm" variant="primary" onclick={applyFormatCheck}>{t('wf.applySuggestion')}</Button>
+										{/if}
+										{#if formatCheck.source === 'llm' && !formatCheck.skill}
+											<p class="field-hint">{t('wf.noSkillFits')}</p>
+										{/if}
+									</div>
+								{/if}
+							{/if}
 							<label class="check-row">
 								<input type="checkbox" bind:checked={editStrict} />
 								<span>{t('wf.strictMode')}</span>
@@ -479,6 +590,10 @@
 										<span class="kind-badge" class:video={wf.kind === 'video'}>{wf.kind}</span>
 										{#if wf.prompt_profile === 'minimax_h3_ref'}
 											<span class="kind-badge h3">H3-ref</span>
+										{:else if wf.prompt_profile === 'skill'}
+											<span class="kind-badge h3">{wf.prompt_skill ?? 'skill'}</span>
+										{:else if wf.kind === 'video'}
+											<span class="kind-badge">prose</span>
 										{/if}
 										<span class="count">{t('wf.inputsCount', { count: wf.input_schema?.length ?? 0 })}</span>
 										<span class="count">{t('wf.outputsCount', { count: wf.output_schema?.length ?? 0 })}</span>
@@ -549,6 +664,24 @@
 />
 
 <style>
+	.format-tools {
+		gap: 8px;
+		margin-top: 4px;
+	}
+	.format-check {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 6px;
+		padding: 10px 12px;
+		border: 1px solid var(--border, #3f3f46);
+		border-radius: 8px;
+		font-size: 13px;
+	}
+	.format-check p {
+		margin: 0;
+	}
+
 	.block-head {
 		display: flex;
 		justify-content: space-between;

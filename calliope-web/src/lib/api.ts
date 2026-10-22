@@ -401,6 +401,7 @@ export const workflows = {
 			inputs: ComfyDynamicInput[];
 			outputs: ComfyDynamicOutput[];
 			suggested_profile?: string;
+			suggested_skill?: string | null;
 		}>('/api/workflows/analyze', {
 			method: 'POST',
 			body: JSON.stringify({ workflow_json }),
@@ -413,6 +414,7 @@ export const workflows = {
 		workflow_json: Record<string, unknown>;
 		description?: string;
 		prompt_profile?: string;
+		prompt_skill?: string | null;
 		strict_mode?: boolean;
 	}) => api<Workflow>('/api/workflows', { method: 'POST', body: JSON.stringify(payload) }),
 	update: (
@@ -424,8 +426,25 @@ export const workflows = {
 			strict_mode: boolean;
 			description: string;
 			prompt_profile: string;
+			prompt_skill: string | null;
 		}>,
 	) => api<Workflow>(`/api/workflows/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+	/** Suggest a prompt format + skill (node match, else the main LLM); changes nothing. */
+	checkFormat: (id: number) =>
+		api<{
+			profile: string;
+			skill: string | null;
+			family: string | null;
+			source: 'nodes' | 'llm';
+			reason: string;
+			current_profile: string;
+			current_skill: string | null;
+		}>(`/api/workflows/${id}/check-format`, { method: 'POST' }),
+	/** Have the main LLM draft a prompt skill for this workflow's model family. */
+	draftSkill: (id: number) =>
+		api<{ name: string; family: string; path: string }>(`/api/workflows/${id}/draft-skill`, {
+			method: 'POST',
+		}),
 	delete: (id: number) => api<{ ok: boolean }>(`/api/workflows/${id}`, { method: 'DELETE' }),
 	get: (id: number) => api<Workflow>(`/api/workflows/${id}`),
 };

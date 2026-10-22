@@ -43,6 +43,8 @@ export interface Workflow {
 	output_schema: ComfyDynamicOutput[];
 	description: string | null;
 	prompt_profile: string;
+	/** Skill whose rules write the prompt when prompt_profile is 'skill'. */
+	prompt_skill?: string | null;
 	is_enabled: boolean;
 	strict_mode: boolean;
 }

@@ -219,7 +219,8 @@ class WorkflowCreate(BaseModel):
     kind: Literal["image", "video"] = "image"
     workflow_json: dict[str, Any]
     description: str | None = None
-    prompt_profile: Literal["prose", "minimax_h3_ref"] | None = None
+    prompt_profile: Literal["prose", "minimax_h3_ref", "skill"] | None = None
+    prompt_skill: str | None = None
     strict_mode: bool = True
 
 
@@ -227,7 +228,8 @@ class WorkflowUpdate(BaseModel):
     name: str | None = None
     kind: Literal["image", "video"] | None = None
     description: str | None = None
-    prompt_profile: Literal["prose", "minimax_h3_ref"] | None = None
+    prompt_profile: Literal["prose", "minimax_h3_ref", "skill"] | None = None
+    prompt_skill: str | None = None
     is_enabled: bool | None = None
     strict_mode: bool | None = None
     workflow_json: dict[str, Any] | None = None

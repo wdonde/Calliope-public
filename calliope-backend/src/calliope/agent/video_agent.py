@@ -18,6 +18,8 @@ from calliope.agent.continuity import (
 )
 from calliope.agent.harness.log import _image_attachment_data_url
 from calliope.agent.llm import LLMClient
+from calliope.agent.skill_prompt import base_prompt as skill_base_prompt
+from calliope.agent.skill_prompt import rewrite_prompt as skill_rewrite_prompt
 from calliope.agent.prompts import (
     build_minimax_h3_ref_messages,
     minimax_h3_ref_fallback,
@@ -326,6 +328,18 @@ def _form_prompt_text(
     return None
 
 
+def _typed_prompt_text(inputs: list[dict[str, Any]], values: dict[str, Any]) -> str | None:
+    """Like :func:`_form_prompt_text`, but the workflow's own sample prompt
+    (its baked-in default, which the clip form stores as if typed) is ignored."""
+    text = _form_prompt_text(inputs, values)
+    defaults = {
+        str(i.get("defaultValue") or "").strip()
+        for i in inputs
+        if input_has_role(i, "prompt", "positive")
+    }
+    return None if text is None or text.strip() in defaults else text
+
+
 def _fetch_clips(
     conn: sqlite3.Connection,
     project_id: int,
@@ -371,6 +385,16 @@ def _workflow_json(workflow: dict[str, Any] | None) -> dict[str, Any]:
     if isinstance(raw, str):
         return json.loads(raw)
     return raw or {}
+
+
+def _project_look(project_id: int) -> dict[str, Any]:
+    """Tone and genre -- the style suffix of a skill-format prompt."""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT tone, genre FROM projects WHERE id = ?", (project_id,)).fetchone()
+        return row_to_dict(row) if row else {}
+    finally:
+        conn.close()
 
 
 def _get_workflow(workflow_id: int | None = None) -> dict[str, Any] | None:
@@ -612,6 +636,28 @@ async def preview_clip_prompt(
         }
 
     based_on = _clip_prompt_hash(hash_clip, references=ref_sig)
+    if profile == "skill":
+        # Same precedence as H3: Regenerate -> LLM rewrite by the workflow's
+        # skill (saved as the clip's draft); else the user's typed prompt; else
+        # a fresh draft; else the instant base prompt.
+        look = _project_look(project_id)
+        skill = workflow.get("prompt_skill")
+        user_text = _typed_prompt_text(inputs, form_values)
+        draft = _stored_prompt_draft(clip)
+        meta = _clip_video_settings(clip).get("prompt_draft_meta") or {}
+        if force and skill:
+            prompt = await skill_rewrite_prompt(
+                skill, scene, characters, look,
+                has_start_image=any(i.get("kind") == "image" for i in inputs),
+            )
+            _save_prompt_draft(clip_id, prompt, based_on)
+            return {"prompt": prompt, "profile": profile, "from_draft": False, "based_on": based_on}
+        if user_text:
+            return {"prompt": user_text, "profile": profile, "from_draft": False, "based_on": based_on}
+        if draft and meta.get("based_on") == based_on:
+            return {"prompt": draft, "profile": profile, "from_draft": True, "based_on": based_on}
+        prompt = skill_base_prompt(scene, characters, look)
+        return {"prompt": prompt, "profile": profile, "from_draft": False, "based_on": based_on}
     prompt = scene_video_prompt(scene, characters)
     return {"prompt": prompt, "profile": profile, "from_draft": False, "based_on": based_on}
 
@@ -706,7 +752,8 @@ async def rewrite_clip_prompts(
                 {"clip_id": int(clip["id"]), "label": label, "ok": False, "error": str(exc)}
             )
             continue
-        persisted = save and item["profile"] == "minimax_h3_ref"
+        # A skill-format rewrite already saved its own draft in preview_clip_prompt.
+        persisted = save and item["profile"] in ("minimax_h3_ref", "skill")
         if persisted:
             _save_prompt_draft(int(clip["id"]), item["prompt"], item["based_on"])
         results.append(
@@ -884,6 +931,38 @@ async def enqueue_video_jobs(
                     ref_images=ref_paths,
                     ref_videos=[v["path"] for v in videos],
                     ref_audios=ref_audios,
+                    duration=duration,
+                    extra=extra_values,
+                )
+            elif profile == "skill":
+                # No LLM at enqueue: confirmed prompt -> typed form prompt ->
+                # fresh Regenerate draft -> instant base prompt.
+                # Same fingerprint inputs as preview_clip_prompt, or no draft is ever fresh.
+                _subjects, ref_paths, _videos = resolve_h3_references(
+                    inputs, extra_values, characters, loc_row, loc_image
+                )
+                ref_sig = _reference_signature(ref_paths, resolve_ref_audios(inputs, extra_values))
+                draft = _stored_prompt_draft(clip)
+                meta = _clip_video_settings(clip).get("prompt_draft_meta") or {}
+                fresh = draft if draft and meta.get("based_on") == _clip_prompt_hash(
+                    hash_input, references=ref_sig
+                ) else None
+                prompt = (
+                    (prompts or {}).get(clip["id"])
+                    or _typed_prompt_text(inputs, extra_values)
+                    or fresh
+                    or skill_base_prompt(scene, characters, _project_look(project_id))
+                )
+                # A stored sample prompt would otherwise overwrite `prompt` in the node.
+                if not _typed_prompt_text(inputs, extra_values):
+                    for inp in inputs:
+                        if input_has_role(inp, "prompt", "positive"):
+                            extra_values.pop(str(inp["nodeId"]), None)
+                values = smart_fill_inputs(
+                    inputs,
+                    prompt=prompt,
+                    character_image=char_image,
+                    location_image=loc_image,
                     duration=duration,
                     extra=extra_values,
                 )

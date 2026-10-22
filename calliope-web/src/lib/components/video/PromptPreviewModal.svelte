@@ -298,6 +298,8 @@
 			<p class="hint">{t('promptPreview.fromDraftHint')}</p>
 		{:else if workflow?.prompt_profile === 'minimax_h3_ref'}
 			<p class="hint">{t('promptPreview.h3Hint')}</p>
+		{:else if workflow?.prompt_profile === 'skill'}
+			<p class="hint">{t('promptPreview.skillHint', { skill: workflow.prompt_skill ?? '?' })}</p>
 		{:else}
 			<p class="hint">{t('promptPreview.proseHint')}</p>
 		{/if}

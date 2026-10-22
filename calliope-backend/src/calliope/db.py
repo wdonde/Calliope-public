@@ -316,6 +316,9 @@ async def migrate_db(db_path: Path) -> None:
         conn.execute("ALTER TABLE workflows ADD COLUMN output_schema TEXT")
     if "description" not in cols:
         conn.execute("ALTER TABLE workflows ADD COLUMN description TEXT")
+    if "prompt_skill" not in cols:
+        # Skill whose rules write the prompt when prompt_profile = 'skill'.
+        conn.execute("ALTER TABLE workflows ADD COLUMN prompt_skill TEXT")
     if "prompt_profile" not in cols:
         conn.execute(
             "ALTER TABLE workflows ADD COLUMN prompt_profile TEXT NOT NULL DEFAULT 'prose'"
