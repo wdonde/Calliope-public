@@ -9,13 +9,21 @@
 	import { t } from '$lib/i18n.svelte';
 	import { toast } from '$lib/toast';
 	import AssetTags from '$lib/components/AssetTags.svelte';
+	import NewAssetDialog from '$lib/components/NewAssetDialog.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 
 	const client = useQueryClient();
-	const libraryQuery = createQuery({ queryKey: ['asset-library'], queryFn: () => assetLibraryApi.list() });
+	const libraryQuery = createQuery({
+		queryKey: ['asset-library'],
+		queryFn: () => assetLibraryApi.list(),
+		// Poll while a library render is still running.
+		refetchInterval: (q: { state: { data?: LibraryAsset[] } }) =>
+			(q.state.data ?? []).some((a) => a.data.pending_job) ? 5000 : false,
+	});
+	let newOpen = $state(false);
 	const projectsQuery = createQuery({ queryKey: ['projects'], queryFn: projects.list });
 
 	let kind = $state<AssetKind | 'all'>('all');
@@ -42,7 +50,7 @@
 					: a.tags.includes(activeTag);
 				if (!ok) return false;
 			}
-			const hay = [a.name, a.category ?? '', ...a.tags, ...Object.values(a.data).filter((v) => typeof v === 'string')]
+			const hay = [a.name, a.category ?? '', ...a.tags, ...Object.values(a.data).filter((v): v is string => typeof v === 'string')]
 				.join(' ')
 				.toLowerCase();
 			return words.every((w) => hay.includes(w));
@@ -79,7 +87,10 @@
 	{#if activeTag}
 		<button type="button" class="tag-filter" onclick={() => (activeTag = null)}>{activeTag} ×</button>
 	{/if}
+	<Button size="sm" variant="primary" onclick={() => (newOpen = true)}>{t('assets.new.asset')}</Button>
 </div>
+
+<NewAssetDialog bind:open={newOpen} kind={kind === 'all' ? 'character' : kind} chooseKind oncreated={refresh} />
 
 {#if ($libraryQuery.data ?? []).length === 0 && !$libraryQuery.isLoading}
 	<EmptyState title={t('assets.libraryEmptyTitle')} body={t('assets.libraryEmptyBody')}>
@@ -107,8 +118,11 @@
 						active={activeTag}
 						onfilter={(tag) => (activeTag = activeTag === tag ? null : tag)}
 						onsave={(f) => act(() => assetLibraryApi.update(a.id, f))}
+						pictures={(a.data.source_images as string[] | undefined)?.length ?? 0}
+						onfromimages={() => act(() => assetLibraryApi.libraryFromImages(a.id), t('assets.fromPicturesQueued'))}
 					/>
-					<p class="desc muted small">{a.data.appearance ?? a.data.description ?? ''}</p>
+					{#if a.data.pending_job}<p class="muted small">{t('assets.rendering')}</p>{/if}
+					<p class="desc muted small">{String(a.data.appearance ?? a.data.description ?? '')}</p>
 					<div class="row">
 						<select class="field-select" bind:value={target[a.id]}>
 							<option value="">{t('assets.chooseProject')}</option>

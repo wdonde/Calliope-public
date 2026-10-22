@@ -12,11 +12,17 @@
 
 	interface Props {
 		open: boolean;
-		projectId: number;
+		/** Without a project the asset goes straight into the asset library. */
+		projectId?: number;
 		kind: AssetKind;
+		/** Let the user pick character/location/item (the library has no tabs). */
+		chooseKind?: boolean;
 		oncreated: () => void;
 	}
-	let { open = $bindable(), projectId, kind, oncreated }: Props = $props();
+	let { open = $bindable(), projectId, kind, chooseKind = false, oncreated }: Props = $props();
+
+	let picked = $state<AssetKind | null>(null);
+	const current = $derived<AssetKind>(picked ?? kind);
 
 	const MAX = 6;
 	let name = $state('');
@@ -37,7 +43,9 @@
 		try {
 			const paths: string[] = [];
 			for (const f of files) paths.push((await playgroundApi.upload(f)).path);
-			await assetLibraryApi.create(projectId, { kind, name: name.trim(), prompt: notes, image_paths: paths, generate });
+			const payload = { kind: current, name: name.trim(), prompt: notes, image_paths: paths, generate };
+			if (projectId) await assetLibraryApi.create(projectId, payload);
+			else await assetLibraryApi.createInLibrary(payload);
 			toast.success(t('assets.newCreated', { name: name.trim() }));
 			name = '';
 			notes = '';
@@ -52,8 +60,15 @@
 	}
 </script>
 
-<Modal bind:open title={t(`assets.new.${kind}`)} size="lg" onclose={() => (open = false)}>
+<Modal bind:open title={t(`assets.new.${current}`)} size="lg" onclose={() => (open = false)}>
 	<div class="form">
+		{#if chooseKind}
+			<div class="kinds">
+				{#each ['character', 'location', 'item'] as const as k (k)}
+					<button type="button" class:active={current === k} onclick={() => (picked = k)}>{t(`assets.new.${k}`)}</button>
+				{/each}
+			</div>
+		{/if}
 		<label>
 			<span class="field-label">{t('assets.new.name')}</span>
 			<input class="field-input" bind:value={name} placeholder="Captain Edward 'Ripper Eddy' Reed" />
@@ -101,6 +116,22 @@
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
+	}
+	.kinds {
+		display: flex;
+		gap: 6px;
+	}
+	.kinds button {
+		border: 1px solid var(--border);
+		background: transparent;
+		color: var(--text-secondary);
+		border-radius: 999px;
+		padding: 4px 12px;
+		cursor: pointer;
+	}
+	.kinds button.active {
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 	.check {
 		flex-direction: row;

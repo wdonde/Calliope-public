@@ -74,6 +74,8 @@ export const ko: Dict = {
 	'comic.promptSaved': 'Prompt saved',
 	'comic.promptHint': 'English, for the image model. The speech bubbles keep the story language.',
 	'comic.resetBubbles': 'Reset bubble positions',
+	'assets.new.asset': 'New asset',
+	'assets.rendering': 'Rendering…',
 	'assets.new.character': 'New character',
 	'assets.new.location': 'New location',
 	'assets.new.item': 'New item',

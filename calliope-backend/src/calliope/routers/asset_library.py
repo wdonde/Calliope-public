@@ -17,7 +17,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from calliope.agent.asset_create import create_asset, enqueue_from_images
+from calliope.agent.asset_create import create_asset, create_library_asset, enqueue_from_images
 from calliope.agent.asset_tags import normalize_category, suggest_tags, tags_json
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
@@ -117,6 +117,8 @@ async def save_to_library(project_id: int, kind: Kind, entity_id: int) -> dict[s
         data = {f: e.get(f) for f in FIELDS[kind]}
         for col in IMAGES[kind]:
             data[col] = _copy(e.get(col), _library_dir(lib_id))
+        data["source_images"] = [c for c in (_copy(p, _library_dir(lib_id) / "source")
+                                             for p in e.get("source_images") or []) if c]
         image = next((data[c] for c in IMAGES[kind] if data.get(c)), None)
         conn.execute("UPDATE library_assets SET data_json = ?, image_path = ? WHERE id = ?",
                      (json.dumps(data, ensure_ascii=False), image, lib_id))
@@ -143,6 +145,8 @@ async def add_to_project(asset_id: int, payload: AddToProject) -> dict[str, Any]
         dest = Path(settings.assets_dir) / str(payload.project_id) / "library" / str(asset_id)
         for col in IMAGES[kind]:
             values[col] = _copy(a["data"].get(col), dest)
+        values["source_images"] = json.dumps(
+            [c for c in (_copy(p, dest / "source") for p in a["data"].get("source_images") or []) if c])
         if kind == "item":
             values["category"] = a.get("category")
         cols = ", ".join(values)
@@ -200,12 +204,7 @@ async def new_asset(project_id: int, payload: NewAsset) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail="Project not found")
     finally:
         conn.close()
-    assets_root = Path(settings.assets_dir).resolve()
-    for p in payload.image_paths:
-        try:
-            Path(p).resolve().relative_to(assets_root)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=f"Image outside the assets folder: {p}") from exc
+    _check_upload_paths(payload.image_paths)
     return await create_asset(project_id, kind=payload.kind, name=payload.name.strip(), prompt=payload.prompt,
                               image_paths=payload.image_paths, generate=payload.generate)
 
@@ -228,3 +227,52 @@ async def regenerate_from_images(project_id: int, kind: Kind, entity_id: int) ->
     if job is None:
         raise HTTPException(status_code=422, detail="No enabled image workflow.")
     return {"job_id": job["id"]}
+
+
+@router.post("/asset-library/new")
+async def new_library_asset(payload: NewAsset) -> dict[str, Any]:
+    _check_upload_paths(payload.image_paths)
+    return await create_library_asset(kind=payload.kind, name=payload.name.strip(), prompt=payload.prompt,
+                                      image_paths=payload.image_paths, generate=payload.generate)
+
+
+@router.post("/asset-library/{asset_id}/from-images")
+async def library_from_images(asset_id: int) -> dict[str, Any]:
+    from calliope.routers.playground import ensure_playground_project
+
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM library_assets WHERE id = ?", (asset_id,)).fetchone()
+        scratch = ensure_playground_project(conn)
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Library asset not found")
+    a = _out(row)
+    if not a["data"].get("source_images"):
+        raise HTTPException(status_code=422, detail="This asset has no pictures of its own.")
+    job = enqueue_from_images(scratch, a["kind"], {"id": asset_id, "name": a["name"], **a["data"]},
+                              {"library_asset_id": asset_id})
+    if job is None:
+        raise HTTPException(status_code=422, detail="No enabled image workflow.")
+    _set_pending(asset_id, a["data"], job["id"])
+    return {"job_id": job["id"]}
+
+
+def _set_pending(asset_id: int, data: dict[str, Any], job_id: int) -> None:
+    conn = get_db(settings.db_path)
+    try:
+        conn.execute("UPDATE library_assets SET data_json = ? WHERE id = ?",
+                     (json.dumps({**data, "pending_job": job_id}, ensure_ascii=False), asset_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _check_upload_paths(paths: list[str]) -> None:
+    assets_root = Path(settings.assets_dir).resolve()
+    for p in paths:
+        try:
+            Path(p).resolve().relative_to(assets_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Image outside the assets folder: {p}") from exc

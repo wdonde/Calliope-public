@@ -199,7 +199,8 @@ export interface LibraryAsset {
 	name: string;
 	category: string | null;
 	tags: string[];
-	data: Record<string, string | null>;
+	/** Fields of the asset (appearance/description, …), source_images and a pending_job while rendering. */
+	data: Record<string, unknown>;
 	image_path: string | null;
 	source_project_id: number | null;
 	created_at: string;
@@ -228,6 +229,13 @@ export const assetLibraryApi = {
 			method: 'POST',
 			body: JSON.stringify(payload),
 		}),
+	createInLibrary: (payload: { kind: AssetKind; name: string; prompt: string; image_paths: string[]; generate: boolean }) =>
+		api<{ asset_id: number; job_id: number | null }>('/api/asset-library/new', {
+			method: 'POST',
+			body: JSON.stringify(payload),
+		}),
+	libraryFromImages: (assetId: number) =>
+		api<{ job_id: number }>(`/api/asset-library/${assetId}/from-images`, { method: 'POST' }),
 	fromImages: (projectId: number, kind: AssetKind, entityId: number) =>
 		api<{ job_id: number }>(`/api/projects/${projectId}/${kind}/${entityId}/from-images`, { method: 'POST' }),
 	suggestTags: (projectId: number) =>

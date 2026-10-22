@@ -130,8 +130,10 @@ def _pick_workflow(n_refs: int) -> int | None:
     return pick(n_refs)
 
 
-def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any]) -> dict[str, Any] | None:
-    """Queue the sheet/reference render with the asset's own pictures as references."""
+def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
+                        target: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Queue the sheet/reference render with the asset's own pictures as references.
+    ``target`` says where the worker writes the result (default: the project asset)."""
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
     refs = images
     if len(images) > 2:
@@ -166,7 +168,8 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any]) -> d
         project_id=project_id,
         kind="image",
         workflow_id=wf,
-        payload={"input_values": values, f"{kind}_id": entity["id"], "asset_target": "sheet", "prompt": prompt},
+        payload={"input_values": values, **(target or {f"{kind}_id": entity["id"]}), "asset_target": "sheet",
+                 "prompt": prompt},
     )
 
 
@@ -207,3 +210,64 @@ async def create_asset(project_id: int, *, kind: str, name: str, prompt: str = "
     job = enqueue_from_images(project_id, kind, entity) if generate else None
     return {"asset": entity, "job_id": job["id"] if job else None}
 
+
+
+async def create_library_asset(*, kind: str, name: str, prompt: str = "", image_paths: list[str] | None = None,
+                               generate: bool = True) -> dict[str, Any]:
+    """Same as :func:`create_asset`, straight into the asset library. The render
+    runs in the hidden Playground project; the worker copies the result over."""
+    from calliope.routers.playground import ensure_playground_project
+
+    conn = get_db(settings.db_path)
+    try:
+        cur = conn.execute("INSERT INTO library_assets (kind, name) VALUES (?, ?)", (kind, name))
+        lib_id = cur.lastrowid
+        conn.commit()
+        scratch = ensure_playground_project(conn)
+    finally:
+        conn.close()
+    lib_dir = Path(settings.assets_dir) / "library" / str(lib_id)
+    images = []
+    for p in [p for p in image_paths or [] if p and Path(p).is_file()][:MAX_IMAGES]:
+        (lib_dir / "source").mkdir(parents=True, exist_ok=True)
+        images.append(str(shutil.copy2(p, lib_dir / "source" / Path(p).name)))
+    look = await describe(kind, name, prompt, images)
+    field = LOOK_HINT[kind][0]
+    seed = {"name": name, field: look[field], "role": "", "age": "", "personality": ""}
+    consistency = (character_sheet_prompt(seed) if kind == "character"
+                   else location_reference_prompt(seed) if kind == "location" else item_reference_prompt(seed))
+    data: dict[str, Any] = {field: look[field], "consistency_prompt": consistency, "source_images": images}
+    entity = {"id": lib_id, "name": name, **data}
+    job = enqueue_from_images(scratch, kind, entity, {"library_asset_id": lib_id}) if generate else None
+    if job:
+        data["pending_job"] = job["id"]
+    conn = get_db(settings.db_path)
+    try:
+        conn.execute("UPDATE library_assets SET category = ?, tags = ?, data_json = ? WHERE id = ?",
+                     (look["category"], tags_json(name_tags(name) + list(look["tags"])),
+                      json.dumps(data, ensure_ascii=False), lib_id))
+        conn.commit()
+        row = row_to_dict(conn.execute("SELECT * FROM library_assets WHERE id = ?", (lib_id,)).fetchone())
+    finally:
+        conn.close()
+    return {"asset_id": row["id"], "job_id": job["id"] if job else None}
+
+
+def library_render_done(asset_id: int, output: str) -> None:
+    """Worker hook: keep a copy of a finished library render with the asset."""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT kind, data_json FROM library_assets WHERE id = ?", (asset_id,)).fetchone()
+        if not row or not Path(output).is_file():
+            return
+        dest = Path(settings.assets_dir) / "library" / str(asset_id)
+        dest.mkdir(parents=True, exist_ok=True)
+        image = str(shutil.copy2(output, dest / Path(output).name))
+        data = json.loads(row["data_json"] or "{}")
+        data.pop("pending_job", None)
+        data["sheet_path" if row["kind"] == "character" else "reference_image_path"] = image
+        conn.execute("UPDATE library_assets SET image_path = ?, data_json = ?, updated_at = CURRENT_TIMESTAMP "
+                     "WHERE id = ?", (image, json.dumps(data, ensure_ascii=False), asset_id))
+        conn.commit()
+    finally:
+        conn.close()

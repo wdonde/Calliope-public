@@ -1,6 +1,7 @@
 """Asset tags, item categories and the cross-project asset library."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from PIL import Image
@@ -110,3 +111,39 @@ def test_new_character_from_pictures_is_described_and_rendered(client, monkeypat
     assert Path(r3["asset"]["source_images"][0]).with_name("collage.png").exists()
     assert client.post(f"/api/projects/{pid}/assets/new", json={
         "kind": "item", "name": "X", "image_paths": ["/etc/passwd"]}).status_code == 422
+
+
+def test_library_asset_is_created_rendered_and_carried_into_projects(client, monkeypatch):
+    import calliope.agent.asset_create as ac
+    from calliope.config import settings
+
+    async def fake_llm(messages, temperature=0.4, role=None):
+        return {"description": "matte black rifle with a red sight", "tags": ["owner:Reed"], "category": "weapon"}
+
+    monkeypatch.setattr(ac, "generate_structured", fake_llm)
+    wf = {"10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+          "50": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "Ref (Input:image)"}},
+          "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}
+    client.post("/api/workflows", json={"name": "Klein 1 ref", "kind": "image", "workflow_json": wf})
+    up = Path(settings.assets_dir) / "uploads"
+    up.mkdir(parents=True, exist_ok=True)
+    pic = up / "rifle.png"
+    Image.new("RGB", (100, 60), "black").save(pic)
+
+    r = client.post("/api/asset-library/new", json={"kind": "item", "name": "Rifle", "image_paths": [str(pic)]}).json()
+    a = client.get("/api/asset-library").json()[0]
+    assert a["id"] == r["asset_id"] and a["category"] == "weapon" and a["tags"] == ["owner:Reed"]
+    assert a["data"]["pending_job"] == r["job_id"] and a["image_path"] is None
+    job = client.get(f"/api/jobs/{r['job_id']}").json()
+    assert (job.get("payload") or json.loads(job["payload_json"]))["library_asset_id"] == a["id"]
+
+    out = Path(settings.assets_dir) / "render.png"
+    Image.new("RGB", (64, 64), "gray").save(out)
+    ac.library_render_done(a["id"], str(out))  # what the worker does when the job finishes
+    a = client.get("/api/asset-library").json()[0]
+    assert a["image_path"] and Path(a["image_path"]).exists() and "pending_job" not in a["data"]
+
+    pid = client.post("/api/projects", json={"title": "P"}).json()["id"]
+    item = client.post(f"/api/asset-library/{a['id']}/to-project", json={"project_id": pid}).json()
+    assert item["category"] == "weapon" and Path(item["reference_image_path"]).exists()
+    assert len(item["source_images"]) == 1 and Path(item["source_images"][0]).exists()

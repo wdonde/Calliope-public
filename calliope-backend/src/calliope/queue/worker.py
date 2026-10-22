@@ -588,6 +588,10 @@ class QueueWorker:
                     "UPDATE items SET reference_image_path = ? WHERE id = ?",
                     (primary, item_id),
                 )
+            if payload.get("library_asset_id"):
+                from calliope.agent.asset_create import library_render_done
+
+                library_render_done(int(payload["library_asset_id"]), primary)
             if payload.get("panel_id"):
                 conn.execute(
                     "UPDATE panels SET image_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
