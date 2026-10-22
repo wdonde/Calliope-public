@@ -382,10 +382,11 @@ class Settings(BaseSettings):
         """Longest Story idea the built-in generators take in one prompt.
 
         Derived from the context window instead of a fixed 2,000: what is left
-        after ~6k tokens for instructions and the answer, at the same
+        after ~8k tokens for instructions, beats/cast (Script sends the idea
+        too) and the answer, at the same
         `llm_chars_per_token` the prompt estimator uses. Never below 2,000.
         """
-        usable = self.context_window_tokens() - 6000
+        usable = self.context_window_tokens() - 8000
         cpt = max(float(self.llm_chars_per_token or 1.6), 0.5)
         return max(2000, int(usable * cpt))
 

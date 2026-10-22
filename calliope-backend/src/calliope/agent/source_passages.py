@@ -7,11 +7,10 @@ so dialogue and staging come from the book instead of being invented.
 """
 from __future__ import annotations
 
-import json
 import math
 from typing import Any
 
-from calliope.agent.condense import split_text
+from calliope.agent.condense import MAX_OUTLINE_PARTS, split_text
 from calliope.agent.prompts import guess_language
 from calliope.config import settings
 
@@ -20,19 +19,18 @@ MAX_PASSAGE_CHARS = 12000
 
 
 def novel_parts(project: dict[str, Any]) -> list[str]:
-    """The stored novel cut the way its outline was made (merged groups included)."""
+    """The stored novel cut the way condense_source cut it (merged groups included).
+
+    Derived from the text alone, never from the outline's length: the user may
+    add or delete outline parts, which must not shift scenes onto other text.
+    """
     text = project.get("source_text") or ""
     if not text.strip():
         return []
     chunks = split_text(text)
-    try:
-        outline = json.loads(project.get("source_summaries") or "[]")
-    except (TypeError, ValueError):
-        outline = []
-    n = len(outline) if isinstance(outline, list) and outline else len(chunks)
-    if len(chunks) <= n:
+    if len(chunks) <= MAX_OUTLINE_PARTS:
         return chunks
-    size = math.ceil(len(chunks) / n)
+    size = math.ceil(len(chunks) / MAX_OUTLINE_PARTS)
     return ["".join(chunks[i:i + size]) for i in range(0, len(chunks), size)]
 
 

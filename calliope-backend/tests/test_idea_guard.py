@@ -68,7 +68,7 @@ def test_threshold_follows_the_context_window(monkeypatch):
     # Settings is a pydantic model: patch the method on its class.
     monkeypatch.setattr(type(settings), "context_window_tokens", lambda self: 16384)
     cpt = max(float(settings.llm_chars_per_token or 1.6), 0.5)
-    assert settings.long_idea_chars() == max(LONG_IDEA_CHARS, int((16384 - 6000) * cpt))
+    assert settings.long_idea_chars() == max(LONG_IDEA_CHARS, int((16384 - 8000) * cpt))
     monkeypatch.setattr(type(settings), "context_window_tokens", lambda self: 4096)
     assert settings.long_idea_chars() == LONG_IDEA_CHARS  # never below the floor
 

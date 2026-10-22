@@ -110,3 +110,14 @@ def test_repeated_dialogue_is_dropped_across_scenes():
     drop_repeated_dialogue(scenes, earlier)
     assert scenes[0]["dialog"] == "ARZT: Das war haarscharf, Captain."
     assert scenes[1]["dialog"] == "REED: Ja."
+
+
+def test_part_mapping_ignores_outline_edits():
+    import json as _json
+
+    from calliope.agent.source_passages import novel_parts
+
+    text = "\n\n".join(f"Teil {i} " + ("x" * 5800) for i in range(1, 9))
+    full = novel_parts({"source_text": text, "source_summaries": _json.dumps(["a"] * 8)})
+    edited = novel_parts({"source_text": text, "source_summaries": _json.dumps(["a"] * 5)})
+    assert full == edited and len(full) == 8

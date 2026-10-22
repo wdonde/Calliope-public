@@ -175,3 +175,23 @@ def test_missing_cast_is_reported_as_zero_not_omitted(client, monkeypatch):
     assert generated["characters"] == 0
     assert generated["locations"] == 0
     assert generated["items"] == 0
+
+
+def test_long_idea_survives_the_draft_but_a_pitch_becomes_the_logline(client, monkeypatch):
+    """An uncondensed long idea (allowed up to settings.long_idea_chars) is the
+    story itself: Draft Storyline must not shrink it to the one-line logline."""
+    import calliope.routers.story as story_router
+
+    async def fake(messages, temperature=0.7, **kw):
+        return {"title": "T", "logline": "One line.", "characters": [], "locations": [], "items": [],
+                "beats": _beats(4, 1)}
+
+    from calliope.config import settings
+
+    monkeypatch.setattr(story_router, "generate_structured", fake)
+    monkeypatch.setattr(type(settings), "long_idea_chars", lambda self: 25000)  # a 16k-token window
+    long_idea = "Die Geschichte beginnt. " * 150  # ~3,600 chars: over the 2,000 floor
+    for idea, expected in ((long_idea, long_idea), ("A short pitch.", "One line.")):
+        pid = client.post("/api/projects", json={"title": "T", "idea": idea, "target_duration": "30 seconds"}).json()["id"]
+        assert client.post(f"/api/projects/{pid}/generate-story").status_code == 200
+        assert client.get(f"/api/projects/{pid}").json()["idea"] == expected

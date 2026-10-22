@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from calliope.agent.idea_guard import LongSourceText, refuse_long_idea
+from calliope.agent.idea_guard import LONG_IDEA_CHARS, LongSourceText, refuse_long_idea
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
     source_outline_block,
@@ -306,12 +306,15 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
             if title is None:
                 title = chunk.get("title")
                 logline = chunk.get("logline")
-                # With a stored novel, Story idea holds its condensed summary --
-                # keep it rather than shrinking it to the one-line logline.
+                # Only a short pitch may be replaced by the one-line logline. A
+                # condensed summary (stored novel) or a long idea -- up to
+                # settings.long_idea_chars() now goes in uncondensed -- is the
+                # story itself and must survive the draft.
+                keep_idea = bool(project.get("source_text")) or len(project.get("idea") or "") > LONG_IDEA_CHARS
                 conn.execute(
                     "UPDATE projects SET title = ?, idea = COALESCE(?, idea), "
                     "status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (title or project["title"], None if project.get("source_text") else logline, project_id),
+                    (title or project["title"], None if keep_idea else logline, project_id),
                 )
             if replace and not replace_started:
                 # Clear the old board only once the first chunk is in hand —
