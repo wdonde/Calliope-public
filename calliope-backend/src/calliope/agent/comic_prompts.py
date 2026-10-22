@@ -11,9 +11,9 @@ import re
 from typing import Any
 
 
-def story_language_rule(text: str | None) -> str:
+def script_language_rule(text: str | None) -> str:
     # Late import: prompts imports this module.
-    from calliope.agent.prompts import story_language_rule as rule
+    from calliope.agent.prompts import script_language_rule as rule
 
     return rule(text)
 
@@ -109,6 +109,7 @@ def comic_script_chunk_messages(
     per_scene = max(1, round(panels / max(1, scene_count)))
     kind = "manga chapter" if fmt == "manga" else "webtoon episode"
     last = chunk_start + chunk_scenes - 1
+    language_sample = " ".join([idea or ""] + [f"{b.get('title')} {b.get('description')}" for b in beats])
     char_lines = "\n".join(
         f"- id={c['id']} {c['name']} ({c.get('role') or ''}): {c.get('appearance') or ''}" for c in characters
     )
@@ -142,7 +143,7 @@ Locations:
 2. order_index must run {chunk_start}, {chunk_start + 1}, ... {last} with no gaps.
 3. Advance the beat arc; this chunk covers the part that falls at scenes {chunk_start}-{last}.
 4. Continue earlier scenes naturally — same characters, consistent locations.
-{story_language_rule(idea)}
+{script_language_rule(language_sample)}
 === ACTION (what the panels will show) ===
 One flowing paragraph, present tense: who is where, poses, gestures, facial expressions,
 the key prop, the setting and its light. Describe moments that read as STILL images — no

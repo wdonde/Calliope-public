@@ -15,6 +15,7 @@ from calliope.agent.prompts import (
     estimate_scene_duration_sec,
     estimate_target_seconds,
     recommend_scene_count,
+    script_language_reminder,
 )
 from calliope.config import settings
 from calliope.db import ensure_default_clip, get_db, row_to_dict
@@ -115,6 +116,11 @@ async def _request_chunk(
         if used:
             passage += "\nDialogue lines already used (do not reuse):\n" + "\n".join(f"- {ln}" for ln in used)
         messages[1] = {**messages[1], "content": messages[1]["content"] + "\n\n" + passage}
+    reminder = script_language_reminder(
+        " ".join([p.get("idea") or ""] + [f"{b.get('title')} {b.get('description')}" for b in beats])
+    )
+    if reminder:
+        messages[1] = {**messages[1], "content": messages[1]["content"] + reminder}
     result = await generate_structured(messages, temperature=0.7, role="writer")
     scenes = result.get("scenes") or []
     if len(scenes) < chunk_scenes:

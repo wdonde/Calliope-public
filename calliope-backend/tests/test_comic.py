@@ -168,8 +168,9 @@ def test_story_text_follows_the_idea_language():
     de = ("Eine junge Bäckerin namens Lina entdeckt, dass ihr Sauerteig sprechen kann. Er warnt sie vor einem "
           "Drachen, der die Stadt bedroht, und sie backen zusammen ein Brot für den Drachen.")
     assert "LANGUAGE: write titles" in story_generation_user_prompt("T", de, "g", "t", "10 panels", "webtoon")
-    assert "in German" in comic_script_chunk_messages(
+    script = comic_script_chunk_messages(
         fmt="webtoon", title="T", idea=de, beats=[], characters=[], locations=[], target_duration="10 panels",
         scene_count=4, chunk_start=1, chunk_scenes=4)[1]["content"]
+    assert "every dialogue line in German" in script and "action stay in English" in script
     en = "A young baker named Lina finds out that her sourdough starter can talk and warns her about the dragon in the town."
     assert "LANGUAGE" not in story_generation_user_prompt("T", en, "g", "t", "2 minutes")

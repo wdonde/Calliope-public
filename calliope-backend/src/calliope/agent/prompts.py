@@ -311,6 +311,29 @@ def story_language_rule(text: str | None) -> str:
     )
 
 
+def script_language_rule(text: str | None) -> str:
+    """Script variant: characters speak the story's language, action stays English.
+
+    Action prose feeds image and clip prompts, so only the dialogue follows the
+    idea. Empty for English or unclear text.
+    """
+    lang = guess_language(text or "")
+    if not lang or lang == "English":
+        return ""
+    return (
+        f"LANGUAGE: the characters speak {lang} — write every dialogue line in {lang}, never in English. "
+        "Heading and action stay in English (they feed image generation). Keep names as given.\n"
+    )
+
+
+def script_language_reminder(text: str | None) -> str:
+    """Closing line for script prompts; small models forget a rule placed mid-prompt."""
+    lang = guess_language(text or "")
+    if not lang or lang == "English":
+        return ""
+    return f"\n\nREMINDER: all dialogue lines in {lang}; action in English."
+
+
 def source_outline_block(summaries: list[str]) -> str:
     """The novel part by part, for Draft Storyline (projects.source_summaries)."""
     if not summaries:
@@ -535,6 +558,7 @@ def build_script_chunk_messages(
     `previous_tail` (the last couple of already-written scenes) keeps
     continuity — heading style, location, who's on screen — without resending
     the whole script."""
+    language_sample = " ".join([idea or ""] + [f"{b.get('title')} {b.get('description')}" for b in beats])
     secs = estimate_target_seconds(target_duration)
     # Issue #64: per-scene budget so chunk content volume matches the runtime.
     per_scene_secs = max(3, round(secs / scene_count))
@@ -594,7 +618,7 @@ Locations:
    the part that falls at scenes {chunk_start}–{last}.
 5. If earlier scenes are listed above, continue them naturally — same characters,
    consistent location, no abrupt reset{'' if previous_tail else ' (this is the first chunk)'}.
-{story_language_rule(idea)}
+{script_language_rule(language_sample)}
 === ACTION (full visible action prose — the fidelity contract) ===
 Each scene's "action" is the complete on-screen action for that scene, present tense,
 ONE flowing natural-English paragraph — no bullet points, no labeled fragments (do NOT
