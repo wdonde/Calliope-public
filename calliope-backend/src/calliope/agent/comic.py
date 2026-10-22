@@ -9,9 +9,11 @@ over where a video project renders clips:
   dialogue lines, a place/time caption on each scene's first panel.
 * :func:`render_panels` -- queues image jobs on the workflow that fits the
   number of references; the worker writes the result back via ``panel_id``.
-* :func:`export_comic` -- lays the panels out (vertical strip or A4 pages,
-  right-to-left for manga) and draws the bubbles: the text is set by code,
-  never painted by the model.
+* :func:`export_comic` -- lays the panels out (vertical strip, or A4 pages
+  cut by agent/manga_layout.py, right-to-left for manga) and draws the
+  bubbles: the text is set by code, never painted by the model.
+* :func:`get_layout` / :func:`save_layout` -- manga pages are chosen
+  automatically; the user can move panels and pick other layouts.
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 from calliope.activity import tracked
+from calliope.agent import manga_layout
 from calliope.agent.llm import LLMClient
 from calliope.agent.prompts import guess_language
 from calliope.comfyui.parser import parse_dynamic_inputs
@@ -370,55 +373,120 @@ def _webtoon(panels: list[tuple[dict[str, Any], Image.Image]], out: Path) -> lis
     return [png, jpg]
 
 
-def _manga(panels: list[tuple[dict[str, Any], Image.Image]], out: Path, rtl: bool) -> list[Path]:
-    W, H, M, G = 1240, 1754, 70, 26
-    inner = W - 2 * M
-    items = [(p, im.convert("L").convert("RGB")) for p, im in panels]
-    rows, i = [], 0
-    while i < len(items):
-        p = items[i][0]
-        nxt = items[i + 1][0] if i + 1 < len(items) else None
-        if p.get("shot_size") != "wide" and nxt and nxt.get("shot_size") != "wide":
-            tall = "closeUp" in (p.get("shot_size"), nxt.get("shot_size"))
-            rows.append(([items[i], items[i + 1]], int(inner / 2 * (1.3 if tall else 1.0))))
-            i += 2
-        else:
-            rows.append(([items[i]], int(inner * (0.52 if p.get("shot_size") == "wide" else 0.62))))
-            i += 1
-    page_rows, cur, used = [], [], 0
-    for cells, h in rows:
-        if cur and used + h > H - 2 * M:
-            page_rows.append(cur)
-            cur, used = [], 0
-        cur.append((cells, h))
-        used += h + G
-    if cur:
-        page_rows.append(cur)
-    pages = []
-    for prow in page_rows:
-        page = Image.new("RGB", (W, H), "white")
-        pages.append(page)
-        total = sum(h for _, h in prow) + G * (len(prow) - 1)
-        stretch = min(1.35, (H - 2 * M) / total) if len(prow) > 1 or total > (H - 2 * M) * 0.6 else 1.0
-        y = M
-        for cells, h in prow:
-            h = int(h * stretch)
-            cw = (inner - G * (len(cells) - 1)) // len(cells)
-            for k, (p, im) in enumerate(list(reversed(cells)) if rtl else cells):
-                x = M + k * (cw + G)
-                scale = max(cw / im.width, h / im.height)
-                r = im.resize((round(im.width * scale), round(im.height * scale)), Image.LANCZOS)
-                left, top = (r.width - cw) // 2, (r.height - h) // 3
-                page.paste(r.crop((left, top, left + cw, top + h)), (x, y))
-                box = (x, y, x + cw, y + h)
-                ImageDraw.Draw(page).rectangle(box, outline="black", width=5)
-                if p.get("caption"):
-                    _caption_box(page, p["caption"], x, y + 10, rtl, cw, False)
-                for n, b in enumerate(p["bubbles"]):
-                    bx, by = _bubble_xy(b, n, rtl, bool(p.get("caption")))
-                    _draw_bubble(page, b["text"], int(x + bx * cw), int(y + by * h), box, True,
-                                 -1 if bx < 0.5 else 1, 24)
-            y += h + G
+PAGE = {"width": 1240, "height": 1754, "margin": 70, "gutter": 26}
+
+
+def get_layout(project_id: int) -> dict[str, Any]:
+    """Manga pages for the current panels (stored choices + automatic rest)."""
+    conn = get_db(settings.db_path)
+    try:
+        raw = conn.execute("SELECT comic_layout FROM projects WHERE id = ?", (project_id,)).fetchone()
+    finally:
+        conn.close()
+    stored = json.loads(raw[0]).get("pages") if raw and raw[0] else None
+    panels = list_panels(project_id)
+    pages = manga_layout.resolve(panels, stored)
+    counts = sorted({len(pg["panels"]) for pg in pages})
+    return {
+        "pages": pages,
+        "custom": bool(stored),
+        "templates": {n: manga_layout.templates_for(n) for n in counts},
+        "max_per_page": manga_layout.MAX_PER_PAGE,
+    }
+
+
+def save_layout(project_id: int, pages: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Store the user's pages (None = back to automatic). Pages marked auto keep
+    no template, so they are re-chosen when their panels change."""
+    data = None
+    if pages is not None:
+        known = {p["id"] for p in list_panels(project_id)}
+        cleaned = []
+        for pg in pages:
+            ids = [int(i) for i in pg.get("panels") or [] if int(i) in known]
+            if ids:
+                template = None if pg.get("auto") else pg.get("template")
+                cleaned.append({"panels": ids, "template": template})
+        data = json.dumps({"pages": cleaned}) if cleaned else None
+    conn = get_db(settings.db_path)
+    try:
+        conn.execute("UPDATE projects SET comic_layout = ? WHERE id = ?", (data, project_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_layout(project_id)
+
+
+def _fill_slot(page: Image.Image, poly: list[tuple[float, float]], im: Image.Image | None, label: str) -> tuple[int, int, int, int]:
+    """Cover the polygon with the image (or a placeholder), draw its frame and
+    return the box that captions and bubbles may use."""
+    x0, y0, x1, y1 = (int(round(v)) for v in manga_layout._bbox(poly))
+    w, h = max(1, x1 - x0), max(1, y1 - y0)
+    if im is not None:
+        scale = max(w / im.width, h / im.height)
+        r = im.resize((max(w, round(im.width * scale)), max(h, round(im.height * scale))), Image.LANCZOS)
+        left, top = (r.width - w) // 2, (r.height - h) // 3
+        tile = r.crop((left, top, left + w, top + h))
+    else:
+        tile = Image.new("RGB", (w, h), "#e6e6e6")
+        d = ImageDraw.Draw(tile)
+        f = _font("caption", max(18, min(w, h) // 6))
+        d.text(((w - d.textlength(label, font=f)) / 2, h / 2 - f.size / 2), label, font=f, fill="#888")
+    mask = Image.new("L", page.size, 0)
+    ImageDraw.Draw(mask).polygon(poly, fill=255)
+    canvas = Image.new("RGB", page.size)
+    canvas.paste(tile, (x0, y0))
+    page.paste(canvas, (0, 0), mask)
+    ImageDraw.Draw(page).line(poly + poly[:1], fill="black", width=5, joint="curve")
+    # Inner box (second-outermost corners) keeps captions and bubbles off slanted edges.
+    xs, ys = sorted(p[0] for p in poly), sorted(p[1] for p in poly)
+    if len(poly) >= 4:
+        return int(xs[1]), int(ys[1]), int(xs[-2]), int(ys[-2])
+    return x0, y0, x1, y1
+
+
+def _manga_page(page_def: dict[str, Any], by_id: dict[int, dict[str, Any]], rtl: bool) -> Image.Image:
+    page = Image.new("RGB", (PAGE["width"], PAGE["height"]), "white")
+    polys = manga_layout.slots(page_def["template"], PAGE["width"], PAGE["height"],
+                               margin=PAGE["margin"], gutter=PAGE["gutter"], rtl=rtl)
+    for poly, pid in zip(polys, page_def["panels"]):
+        p = by_id[pid]
+        path = p.get("image_path")
+        im = Image.open(path).convert("L").convert("RGB") if path and Path(path).exists() else None
+        number = p.get("number", pid)
+        box = _fill_slot(page, poly, im, f"#{number}")
+        # Bubbles stay below the place/time caption.
+        room = (box[0], box[1] + (52 if p.get("caption") else 0), box[2], box[3])
+        for n, b in enumerate(p.get("bubbles") or []):
+            bx, by = _bubble_xy(b, n, rtl, bool(p.get("caption")))
+            _draw_bubble(page, b["text"], int(box[0] + bx * (box[2] - box[0])), int(box[1] + by * (box[3] - box[1])),
+                         room, True, -1 if bx < 0.5 else 1, 24)
+        if p.get("caption"):
+            _caption_box(page, p["caption"], box[0], box[1] + 10, rtl, box[2] - box[0], False)
+    return page
+
+
+def _numbered(project_id: int) -> dict[int, dict[str, Any]]:
+    return {p["id"]: {**p, "number": n} for n, p in enumerate(list_panels(project_id), 1)}
+
+
+def render_manga_page(project_id: int, index: int, *, rtl: bool = True, width: int = 620) -> bytes:
+    """PNG preview of one page (unrendered panels show as numbered placeholders)."""
+    import io
+
+    pages = get_layout(project_id)["pages"]
+    if not 0 <= index < len(pages):
+        raise ValueError("No such page.")
+    img = _manga_page(pages[index], _numbered(project_id), rtl)
+    img = img.resize((width, round(img.height * width / img.width)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _manga(project_id: int, out: Path, rtl: bool) -> list[Path]:
+    by_id = _numbered(project_id)
+    pages = [_manga_page(pg, by_id, rtl) for pg in get_layout(project_id)["pages"]]
     paths = []
     for n, pg in enumerate(pages, 1):
         path = out / f"seite_{n:02d}.png"
@@ -444,5 +512,5 @@ def export_comic(project_id: int, *, rtl: bool = True) -> list[str]:
         raise ValueError("No rendered panels yet -- render the panels first.")
     out = Path(settings.data_dir) / "assets" / str(project_id) / "export"
     out.mkdir(parents=True, exist_ok=True)
-    files = _manga(panels, out, rtl) if fmt == "manga" else _webtoon(panels, out)
+    files = _manga(project_id, out, rtl) if fmt == "manga" else _webtoon(panels, out)
     return [str(f) for f in files]

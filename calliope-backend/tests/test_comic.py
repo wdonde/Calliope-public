@@ -174,3 +174,39 @@ def test_story_text_follows_the_idea_language():
     assert "every dialogue line in German" in script and "action stay in English" in script
     en = "A young baker named Lina finds out that her sourdough starter can talk and warns her about the dragon in the town."
     assert "LANGUAGE" not in story_generation_user_prompt("T", en, "g", "t", "2 minutes")
+
+
+def test_manga_pages_are_cut_automatically():
+    from calliope.agent import manga_layout as m
+
+    for name, t in m.TEMPLATES.items():
+        assert len(m.slots(name, 1240, 1754, margin=70, gutter=26)) == t["slots"], name
+    # Right-to-left mirrors the page: the first panel of a row sits on the right.
+    ltr = m.slots("2-side", 1000, 1000, margin=0, gutter=0)
+    rtl = m.slots("2-side", 1000, 1000, margin=0, gutter=0, rtl=True)
+    assert m._bbox(ltr[0])[0] < 100 and m._bbox(rtl[0])[0] >= 400
+    panels = [{"id": i, "shot_size": s, "scene_order": 1}
+              for i, s in enumerate(["wide", "medium", "closeUp", "closeUp", "insert", "wide", "medium", "closeUp"], 1)]
+    pages = m.resolve(panels, None)
+    assert [i for pg in pages for i in pg["panels"]] == list(range(1, 9))
+    assert all(pg["auto"] and m.TEMPLATES[pg["template"]]["slots"] == len(pg["panels"]) for pg in pages)
+    # A stored page is kept; panels after it are laid out automatically.
+    kept = m.resolve(panels, [{"panels": [1, 2, 3], "template": "3-tall-left"}])
+    assert kept[0] == {"panels": [1, 2, 3], "template": "3-tall-left", "auto": False}
+    assert [i for pg in kept[1:] for i in pg["panels"]] == list(range(4, 9))
+
+
+def test_manga_layout_edit_preview_and_reset(client, tmp_path):
+    pid, _ = _comic_project(client, "manga", tmp_path)
+    panel = client.post(f"/api/projects/{pid}/panels/plan").json()[0]
+    layout = client.get(f"/api/projects/{pid}/comic/layout").json()
+    assert layout["pages"] == [{"panels": [panel["id"]], "template": "1-splash", "auto": True}]
+    assert layout["custom"] is False
+    # A template that does not fit the page's panel count falls back to automatic.
+    saved = client.put(f"/api/projects/{pid}/comic/layout",
+                       json={"pages": [{"panels": [panel["id"]], "template": "2-side"}]}).json()
+    assert saved["custom"] is True and saved["pages"][0]["template"] == "1-splash"
+    r = client.get(f"/api/projects/{pid}/comic/pages/0.png")
+    assert r.status_code == 200 and r.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert client.get(f"/api/projects/{pid}/comic/pages/3.png").status_code == 404
+    assert client.delete(f"/api/projects/{pid}/comic/layout").json()["custom"] is False

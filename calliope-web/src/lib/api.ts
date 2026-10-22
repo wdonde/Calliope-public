@@ -83,6 +83,23 @@ export interface Panel {
 	clip_order: number;
 }
 
+export interface MangaPage {
+	/** Panel ids in reading order. */
+	panels: number[];
+	template: string;
+	/** Template chosen automatically (re-chosen when the page's panels change). */
+	auto: boolean;
+}
+
+export interface MangaLayout {
+	pages: MangaPage[];
+	/** The user changed pages; false = fully automatic. */
+	custom: boolean;
+	/** Layout names per panel count on a page. */
+	templates: Record<number, string[]>;
+	max_per_page: number;
+}
+
 export interface ActivityOp {
 	id: number;
 	kind: string;
@@ -119,6 +136,11 @@ export const comicApi = {
 			method: 'POST',
 			body: JSON.stringify({ rtl }),
 		}),
+	layout: (projectId: number) => api<MangaLayout>(`/api/projects/${projectId}/comic/layout`),
+	saveLayout: (projectId: number, pages: MangaPage[]) =>
+		api<MangaLayout>(`/api/projects/${projectId}/comic/layout`, { method: 'PUT', body: JSON.stringify({ pages }) }),
+	resetLayout: (projectId: number) =>
+		api<MangaLayout>(`/api/projects/${projectId}/comic/layout`, { method: 'DELETE' }),
 };
 
 export interface Beat {

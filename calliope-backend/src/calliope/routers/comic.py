@@ -3,10 +3,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
-from calliope.agent.comic import export_comic, list_panels, plan_panels, render_panels, update_panel
+from calliope.agent.comic import (
+    export_comic,
+    get_layout,
+    list_panels,
+    plan_panels,
+    render_manga_page,
+    render_panels,
+    save_layout,
+    update_panel,
+)
 
 router = APIRouter()
 
@@ -31,6 +40,11 @@ class PanelUpdate(BaseModel):
 
 class ExportRequest(BaseModel):
     rtl: bool = True
+
+
+class LayoutRequest(BaseModel):
+    # [{"panels": [panel ids in reading order], "template": name, "auto": bool}]
+    pages: list[dict[str, Any]]
 
 
 @router.get("/projects/{project_id}/panels")
@@ -68,3 +82,27 @@ async def export(project_id: int, payload: ExportRequest | None = None) -> dict[
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"files": files}
+
+
+@router.get("/projects/{project_id}/comic/layout")
+async def layout(project_id: int) -> dict[str, Any]:
+    return get_layout(project_id)
+
+
+@router.put("/projects/{project_id}/comic/layout")
+async def put_layout(project_id: int, payload: LayoutRequest) -> dict[str, Any]:
+    return save_layout(project_id, payload.pages)
+
+
+@router.delete("/projects/{project_id}/comic/layout")
+async def reset_layout(project_id: int) -> dict[str, Any]:
+    return save_layout(project_id, None)
+
+
+@router.get("/projects/{project_id}/comic/pages/{index}.png")
+async def page_preview(project_id: int, index: int, rtl: bool = True) -> Response:
+    try:
+        png = render_manga_page(project_id, index, rtl=rtl)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})

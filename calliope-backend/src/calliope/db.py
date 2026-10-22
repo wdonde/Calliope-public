@@ -408,6 +408,10 @@ async def migrate_db(db_path: Path) -> None:
     # or manga pages. Fixed at creation (agent/comic.py renders the comics).
     if "format" not in project_cols:
         conn.execute("ALTER TABLE projects ADD COLUMN format TEXT NOT NULL DEFAULT 'video'")
+    # Manga pages the user changed: {"pages": [{"panels": [ids], "template"}]};
+    # NULL = laid out automatically (agent/manga_layout.py).
+    if "comic_layout" not in project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN comic_layout TEXT")
     # One comic panel per clip: its image prompt, references, speech bubbles.
     conn.execute(
         """
