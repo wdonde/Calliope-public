@@ -56,9 +56,9 @@ TABLES = {"character": "characters", "location": "locations", "item": "items"}
 FIELDS = {
     # Characters keep only their identity (CHARACTER INFORMATION); outfit,
     # personality and role belong to each project (role travels as a tag).
-    "character": ("alias", "role", "appearance", "consistency_prompt", "max_refs"),
-    "location": ("description", "consistency_prompt", "max_refs"),
-    "item": ("description", "consistency_prompt", "max_refs"),
+    "character": ("alias", "role", "appearance", "consistency_prompt", "max_refs", "ref_indices"),
+    "location": ("description", "consistency_prompt", "max_refs", "ref_indices"),
+    "item": ("description", "consistency_prompt", "max_refs", "ref_indices"),
 }
 IMAGES = {
     "character": ("sheet_path", "portrait_path"),
@@ -217,7 +217,7 @@ async def add_to_project(asset_id: int, payload: AddToProject) -> dict[str, Any]
         kind = a["kind"]
         values: dict[str, Any] = {"project_id": payload.project_id, "name": a["name"],
                                   "tags": tags_json(a["tags"] + [f"library:{asset_id}"])}
-        values.update({f: a["data"].get(f) for f in FIELDS[kind]})
+        values.update({f: json.dumps(v) if isinstance(v := a["data"].get(f), list) else v for f in FIELDS[kind]})
         dest = Path(settings.assets_dir) / str(payload.project_id) / "library" / str(asset_id)
         for col in IMAGES[kind]:
             values[col] = _copy(a["data"].get(col), dest)
@@ -263,6 +263,10 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
                 data[key] = value
         if "max_refs" in data:
             data["max_refs"] = max_refs(data) if data["max_refs"] not in (None, "") else None
+        if "ref_indices" in data:
+            # Positions in source_images (in their order); at most six, no duplicates.
+            raw = data["ref_indices"] if isinstance(data["ref_indices"], list) else []
+            data["ref_indices"] = sorted({int(i) for i in raw if isinstance(i, int) or str(i).isdigit()})[:6]
         if asset["kind"] == "character":
             # Per-project fields from older library entries do not belong here
             # (role is a library field: it is linked into the sheet).
@@ -293,6 +297,10 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
             keep = _library_dir(asset_id) / "source"
             data["source_images"] = [c for c in (p if Path(p).parent == keep else _copy(p, keep)
                                                  for p in fields["source_images"] or []) if c]
+            if "ref_indices" not in (fields.get("data") or {}):
+                data.pop("ref_indices", None)  # positions no longer known: back to automatic
+            elif data.get("ref_indices"):
+                data["ref_indices"] = [i for i in data["ref_indices"] if i < len(data["source_images"])]
         if prompt_auto:
             # Rebuilt from the new state: short reference prompt with pictures, full template without.
             data["consistency_prompt"] = image_prompt(asset["kind"], {"name": sets.get("name") or asset["name"], **data})[0]

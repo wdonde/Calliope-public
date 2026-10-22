@@ -421,6 +421,9 @@ async def migrate_db(db_path: Path) -> None:
         # How many own pictures go in as references (NULL = default, agent/asset_create.py).
         if "max_refs" not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN max_refs INTEGER")
+        # The pictures the user picked as references (JSON list of positions in source_images).
+        if "ref_indices" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN ref_indices TEXT")
         # The user's own pictures an asset was made from (agent/asset_create.py).
         if "source_images" not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN source_images TEXT")
@@ -517,7 +520,7 @@ async def migrate_db(db_path: Path) -> None:
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     out = {key: row[key] for key in row.keys()}
     # Asset tags and source pictures are stored as JSON text; callers always see a list.
-    for key in ("tags", "source_images"):
+    for key in ("tags", "source_images", "ref_indices"):
         if key in out:
             try:
                 out[key] = json.loads(out[key]) if out[key] else []

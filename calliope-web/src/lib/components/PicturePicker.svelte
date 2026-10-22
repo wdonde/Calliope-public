@@ -19,8 +19,35 @@
 	interface Props {
 		pics: Pic[];
 		max?: number;
+		/** Let the user pick reference pictures and reorder them (Edit dialog). */
+		selectable?: boolean;
+		/** Positions in `pics` picked as references; in picture order they are image 1, 2, ... */
+		selected?: number[];
 	}
-	let { pics = $bindable(), max = 6 }: Props = $props();
+	let { pics = $bindable(), max = 6, selectable = false, selected = $bindable([]) }: Props = $props();
+
+	/** "image n" for a picked picture (its rank among the picked ones), else 0. */
+	const imageNo = (i: number) => (selected.includes(i) ? [...selected].sort((a, b) => a - b).indexOf(i) + 1 : 0);
+
+	function toggleRef(i: number) {
+		if (selected.includes(i)) selected = selected.filter((k) => k !== i);
+		else if (selected.length < 6) selected = [...selected, i].sort((a, b) => a - b);
+	}
+
+	/** Move a picture left/right; picks move with it. */
+	function move(i: number, step: number) {
+		const j = i + step;
+		if (j < 0 || j >= pics.length) return;
+		const next = [...pics];
+		[next[i], next[j]] = [next[j], next[i]];
+		pics = next;
+		selected = selected.map((k) => (k === i ? j : k === j ? i : k)).sort((a, b) => a - b);
+	}
+
+	function remove(i: number) {
+		pics = pics.filter((_, k) => k !== i);
+		selected = selected.filter((k) => k !== i).map((k) => (k > i ? k - 1 : k));
+	}
 
 	let browsing = $state(false);
 	const existingQuery = createQuery(
@@ -124,7 +151,17 @@
 		<figure>
 			<img src={p.src} alt="" onload={(e) => checkGray(e, p.src)} />
 			{#if gray[p.src]}<span class="bw" title={t('assets.new.bwTitle')}>B/W</span>{/if}
-			<button type="button" aria-label={t('common.delete')} onclick={() => (pics = pics.filter((_, k) => k !== i))}>×</button>
+			<button type="button" aria-label={t('common.delete')} onclick={() => remove(i)}>×</button>
+			{#if selectable}
+				<div class="controls">
+					<button type="button" class="ref" class:on={imageNo(i) > 0} title={t('assets.pick.refTitle')}
+						disabled={!imageNo(i) && selected.length >= 6} onclick={() => toggleRef(i)}>
+						{imageNo(i) ? t('assets.pick.imageN', { n: imageNo(i) }) : t('assets.pick.ref')}
+					</button>
+					<button type="button" class="mv" aria-label={t('assets.pick.left')} disabled={i === 0} onclick={() => move(i, -1)}>‹</button>
+					<button type="button" class="mv" aria-label={t('assets.pick.right')} disabled={i === pics.length - 1} onclick={() => move(i, 1)}>›</button>
+				</div>
+			{/if}
 		</figure>
 	{/each}
 	{#if pics.length < max}
@@ -177,6 +214,44 @@
 		border-radius: 8px;
 		border: 1px solid var(--border);
 	}
+	.controls {
+		display: flex;
+		gap: 3px;
+		margin-top: 4px;
+		width: 88px;
+	}
+	.controls button {
+		position: static;
+		height: 20px;
+		border-radius: 4px;
+		border: 1px solid var(--border);
+		background: var(--surface-2, transparent);
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 11px;
+		line-height: 1;
+	}
+	.controls .ref {
+		flex: 1;
+		font-weight: 700;
+		width: auto;
+		padding: 0 2px;
+		font-size: 10px;
+		white-space: nowrap;
+	}
+	.controls .ref.on {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: #fff;
+	}
+	.controls .mv {
+		width: 16px;
+		padding: 0;
+	}
+	.controls button:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
 	figure button {
 		position: absolute;
 		top: 2px;
@@ -217,7 +292,7 @@
 	.bw {
 		position: absolute;
 		left: 4px;
-		bottom: 4px;
+		top: 4px;
 		background: rgba(0, 0, 0, 0.75);
 		color: #fff;
 		font-size: 10px;

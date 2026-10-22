@@ -24,6 +24,8 @@
 	let tags = $state('');
 	let fields = $state<Record<string, string>>({});
 	let pics = $state<Pic[]>([]);
+	/** Pictures picked as references (positions in pics); empty = Calliope chooses. */
+	let refIdx = $state<number[]>([]);
 	let picker = $state<PicturePicker>();
 	let busy = $state(false);
 
@@ -56,6 +58,7 @@
 			]),
 		);
 		pics = ((d.source_images as string[] | undefined) ?? []).map((path) => ({ src: assetUrl(path) ?? '', path }));
+		refIdx = ((d.ref_indices as number[] | undefined) ?? []).filter((i) => i < pics.length);
 		savedState = snapshot();
 		rendering = false;
 		void loadPreview();
@@ -78,7 +81,7 @@
 	// Render works on the saved asset, so it waits until the form is saved.
 	let savedState = $state('');
 	let rendering = $state(false);
-	const snapshot = () => JSON.stringify([name, category, tags, fields, pics.map((p) => p.path ?? p.src)]);
+	const snapshot = () => JSON.stringify([name, category, tags, fields, pics.map((p) => p.path ?? p.src), refIdx]);
 	const dirty = $derived(savedState !== '' && snapshot() !== savedState);
 
 	let generating = $state(false);
@@ -90,7 +93,7 @@
 		generating = true;
 		try {
 			await picker?.resolvePaths().then((paths) =>
-				assetLibraryApi.update(asset!.id, { source_images: paths }),
+				assetLibraryApi.update(asset!.id, { source_images: paths, data: { ref_indices: refIdx } }),
 			);
 			// The current text is not sent as notes: notes win over pictures and would keep old mistakes.
 			const r = await assetLibraryApi.describeLibrary(
@@ -134,13 +137,14 @@
 				name: name.trim(),
 				...(isChar ? {} : { tags: tags.split(',').map((s) => s.trim()).filter(Boolean) }),
 				...(asset.kind === 'item' ? { category: category || null } : {}),
-				data: Object.fromEntries(keys.map((k) => [k, fields[k] ?? ''])),
+				data: { ...Object.fromEntries(keys.map((k) => [k, fields[k] ?? ''])), ref_indices: refIdx },
 				source_images: (await picker?.resolvePaths()) ?? [],
 			});
 			// Take back what the server made of it (identity tags, prompt, stored picture paths).
 			tags = saved.tags.join(', ');
 			fields = { ...fields, consistency_prompt: String(saved.data.consistency_prompt ?? fields.consistency_prompt) };
 			pics = ((saved.data.source_images as string[] | undefined) ?? []).map((path) => ({ src: assetUrl(path) ?? '', path }));
+			refIdx = ((saved.data.ref_indices as number[] | undefined) ?? []).filter((i) => i < pics.length);
 			savedState = snapshot();
 			void loadPreview();
 			toast.success(t('assets.edit.saved'));
@@ -243,8 +247,14 @@
 				{/if}
 				<div>
 					<span class="field-label">{t('assets.new.pictures', { max: 6 })}</span>
-					<PicturePicker bind:this={picker} bind:pics />
-					<label class="refs-max">
+					<PicturePicker bind:this={picker} bind:pics bind:selected={refIdx} selectable />
+					{#if refIdx.length}
+						<p class="muted small">
+							{t('assets.pick.chosen', { n: refIdx.length })}
+							<button type="button" class="gen" onclick={() => (refIdx = [])}>{t('assets.pick.auto')}</button>
+						</p>
+					{/if}
+					<label class="refs-max" class:hidden={refIdx.length > 0}>
 						<span class="field-label">{t('assets.edit.maxRefs')}</span>
 						<select class="field-select" bind:value={fields.max_refs}>
 							{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={String(n)}>{n}</option>{/each}
@@ -316,6 +326,9 @@
 	}
 	.status {
 		margin-right: auto;
+	}
+	.hidden {
+		display: none;
 	}
 	.refs-max {
 		margin-top: 8px;

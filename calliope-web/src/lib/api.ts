@@ -232,7 +232,7 @@ export const assetLibraryApi = {
 			name?: string;
 			category?: string | null;
 			tags?: string[];
-			data?: Record<string, string | null>;
+			data?: Record<string, unknown>;
 			source_images?: string[];
 		},
 	) =>

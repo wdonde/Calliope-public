@@ -586,3 +586,34 @@ def test_max_reference_pictures_is_a_library_setting(client):
     out = client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"max_refs": "9"}}).json()
     assert out["data"]["max_refs"] == 6  # clamped
     assert len(client.get(f"/api/asset-library/{lib['id']}/render-preview").json()["refs"]) == 4  # 4-input workflow
+
+
+def test_user_picks_reference_pictures_and_their_order(client):
+    from calliope.config import settings
+
+    def wf(n):
+        w = {"10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+             "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}
+        for i in range(n):
+            w[str(50 + 10 * i)] = {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": f"R{i} (Input:image)"}}
+        return w
+
+    for n in (2, 3):
+        client.post("/api/workflows", json={"name": f"K{n}", "kind": "image", "workflow_json": wf(n)})
+    pid = client.post("/api/projects", json={"title": "P"}).json()["id"]
+    c = client.post(f"/api/projects/{pid}/characters", json={"name": "K"}).json()
+    lib = client.post(f"/api/projects/{pid}/character/{c['id']}/to-library").json()
+    pics = []
+    for i in range(5):
+        p = Path(settings.assets_dir) / "uploads" / f"o{i}.png"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (40, 60), (40 * i, 50, 90)).save(p)
+        pics.append(str(p))
+    out = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": pics, "data": {"ref_indices": [4, 1, 3, 4]}}).json()
+    assert out["data"]["ref_indices"] == [1, 3, 4]
+    refs = client.get(f"/api/asset-library/{lib['id']}/render-preview").json()["refs"]
+    assert [Path(r).name for r in refs] == ["o1.png", "o3.png", "o4.png"]  # picture order -> image 1..3
+    # New pictures without a new choice: the old positions are dropped (automatic again).
+    again = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": pics[:2]}).json()
+    assert "ref_indices" not in again["data"]
+    assert len(client.get(f"/api/asset-library/{lib['id']}/render-preview").json()["refs"]) == 2

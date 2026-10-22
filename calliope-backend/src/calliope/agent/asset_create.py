@@ -102,10 +102,22 @@ def max_refs(entity: dict[str, Any]) -> int:
         return DEFAULT_MAX_REFS
 
 
-def usable_refs(images: list[str], kind: str, limit: int = DEFAULT_MAX_REFS) -> tuple[list[str], int | None]:
-    """(references, workflow): up to ``limit`` pictures, as many as an enabled
-    workflow takes; fewer when none has that many image inputs; none -> text workflow."""
-    refs = pick_refs(images, limit) if images else []
+def chosen_refs(entity: dict[str, Any]) -> list[str] | None:
+    """The pictures the user picked as references, in picture order (image 1, 2, ...);
+    None when nothing is picked (then Calliope chooses)."""
+    images = entity.get("source_images") or []
+    picked = [i for i in entity.get("ref_indices") or [] if isinstance(i, int) and 0 <= i < len(images)]
+    if not picked:
+        return None
+    return [images[i] for i in sorted(set(picked)) if Path(images[i]).is_file()][:MAX_IMAGES]
+
+
+def usable_refs(images: list[str], kind: str, limit: int = DEFAULT_MAX_REFS,
+                chosen: list[str] | None = None) -> tuple[list[str], int | None]:
+    """(references, workflow): the user's chosen pictures, or up to ``limit``
+    picked by Calliope; as many as an enabled workflow takes (fewer when none
+    has that many image inputs); none -> text workflow."""
+    refs = list(chosen) if chosen else (pick_refs(images, limit) if images else [])
     while refs:
         wf = _pick_workflow(len(refs), kind)
         if wf is not None:
@@ -403,7 +415,7 @@ def text_prompt(kind: str, entity: dict[str, Any]) -> str:
 def image_prompt(kind: str, entity: dict[str, Any]) -> tuple[str, list[str]]:
     """(prompt, reference pictures) as they go to ComfyUI for this asset."""
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
-    refs, _ = usable_refs(images, kind, max_refs(entity))
+    refs, _ = usable_refs(images, kind, max_refs(entity), chosen_refs(entity))
     if not refs:
         return text_prompt(kind, entity), []
     return reference_prompt(kind, entity, len(refs), all(is_grayscale(p) for p in images)), refs
@@ -428,7 +440,7 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
     """Queue the sheet/reference render with the asset's own pictures as references.
     ``target`` says where the worker writes the result (default: the project asset)."""
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
-    refs, wf = usable_refs(images, kind, max_refs(entity))
+    refs, wf = usable_refs(images, kind, max_refs(entity), chosen_refs(entity))
     if wf is None:
         return None
     # What is sent is what the Image prompt field shows: the user's own text, or
