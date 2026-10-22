@@ -383,10 +383,13 @@ async def describe_library_asset(asset_id: int, payload: DescribeRequest | None 
         raise HTTPException(status_code=404, detail="Library asset not found")
     a = _out(row)
     field = LOOK_HINT[a["kind"]][0]
-    known = a["data"].get(field) or ""
+    pictures = [p for p in a["data"].get("source_images") or [] if Path(p).is_file()]
+    # With pictures the old text is left out: it would only pass on its guesses.
+    known = "" if pictures else a["data"].get(field) or ""
     look = await describe(a["kind"], a["name"], (payload.notes if payload else "") or "",
-                          [p for p in a["data"].get("source_images") or [] if Path(p).is_file()],
-                          context=f"{project_context(a.get('source_project_id'))}\nCurrent look: {known}".strip(),
+                          pictures,
+                          context=f"{project_context(a.get('source_project_id'))}\n"
+                                  f"{'Earlier draft: ' + known if known else ''}".strip(),
                           identity_only=a["kind"] == "character")
     tags = list(look["tags"]) + (identity_tags(look[field]) if a["kind"] == "character" else [])
     return {"field": field, "text": look[field], "tags": tags, "category": look["category"]}
@@ -405,7 +408,10 @@ async def describe_project_asset(project_id: int, kind: Kind, entity_id: int) ->
         raise HTTPException(status_code=404, detail="Asset not found")
     e = row_to_dict(row)
     field = LOOK_HINT[kind][0]
-    known = " ".join(f"{k}: {e[k]}" for k in ("role", "age", "personality", field) if e.get(k))
+    pictures = [p for p in e.get("source_images") or [] if Path(p).is_file()]
+    # With pictures the old look is left out (it would only pass on its guesses); role etc. stay.
+    known = " ".join(f"{k}: {e[k]}" for k in ("role", "age", "personality", *(() if pictures else (field,)))
+                     if e.get(k))
     # A character linked to the library keeps that identity; only its outfit is (re)written.
     locked = kind == "character" and any(t.startswith("library:") for t in e.get("tags") or [])
     look = await describe(kind, e["name"], "", [p for p in e.get("source_images") or [] if Path(p).is_file()],

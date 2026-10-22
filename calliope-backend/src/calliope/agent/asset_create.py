@@ -4,8 +4,8 @@ The user's pictures are kept with the asset (``source_images``). A vision
 model (the "assets" role) looks at them and writes the fixed look in English
 -- the same shape Draft Storyline asks for -- plus tags; without pictures the
 description alone is turned into that look. The sheet/reference image is then
-rendered with the pictures as references: one or two go in directly, more are
-tiled into one collage so a one-reference workflow can take them.
+rendered with the pictures as references: at most two at full size (see
+:func:`pick_refs`) -- a color picture for the colors and the full-body view.
 """
 from __future__ import annotations
 
@@ -48,6 +48,49 @@ LOOK_HINT = {
 GRAY_HINT = ("The pictures are black-and-white: they show shapes, faces and clothing, not colors. Take the colors "
              "from the notes; where the notes say nothing, choose fitting colors. Always write explicit colors "
              "(skin tone, eye color, hair color, every garment) so the look stays the same in color.")
+MIXED_HINT = ("Some pictures are in COLOR, the others black-and-white. Take every color (hair, eyes, skin, "
+              "clothes) from the COLOR pictures -- they win over any guess; use the black-and-white ones for "
+              "shapes, face, body and hairstyle. Write the colors explicitly.")
+
+
+def context_block(context: str, has_pictures: bool) -> str:
+    """The story and the look so far. With pictures, the pictures decide: an
+    earlier text is only a draft (otherwise the model copies its old mistakes)."""
+    if not context.strip():
+        return ""
+    if has_pictures:
+        return ("Context (the story, and an earlier draft of the look that may be wrong -- whatever the pictures "
+                f"show replaces it): {context[:2500]}")
+    return f"Context (the story and what is known so far -- stay true to it): {context[:2500]}"
+
+
+def color_hint(images: list[str]) -> str:
+    gray = [is_grayscale(p) for p in images]
+    if not images:
+        return ""
+    if all(gray):
+        return GRAY_HINT
+    return MIXED_HINT if any(gray) else ""
+
+
+def pick_refs(images: list[str]) -> list[str]:
+    """At most two references at full size (a collage shrinks faces to nothing):
+    a color picture first (it carries the colors), then the tallest other
+    picture (usually the full body)."""
+    def area(p: str) -> int:
+        with Image.open(p) as im:
+            return im.width * im.height
+
+    def tallness(p: str) -> float:
+        with Image.open(p) as im:
+            return im.height / max(1, im.width)
+
+    color = sorted((p for p in images if not is_grayscale(p)), key=area, reverse=True)
+    first = color[0] if color else max(images, key=area)
+    rest = [p for p in images if p != first]
+    return [first] + ([max(rest, key=tallness)] if rest else [])
+
+
 TAG_KEYS = {
     "character": "alias (other names or nicknames), role (protagonist, villain, mentor, ...)",
     "location": "type (interior, exterior, landscape, vehicle interior), region (world or area), alias",
@@ -138,22 +181,6 @@ def keep_images(project_id: int, kind: str, paths: list[str]) -> list[str]:
     return out
 
 
-def collage(paths: list[str], out: Path, size: int = 1536) -> str:
-    """All pictures side by side on white, in one image (for a one-reference workflow)."""
-    ims = [Image.open(p).convert("RGB") for p in paths]
-    cols = 2 if len(ims) <= 4 else 3
-    rows = -(-len(ims) // cols)
-    cell = size // cols
-    sheet = Image.new("RGB", (cell * cols, cell * rows), "white")
-    for i, im in enumerate(ims):
-        im.thumbnail((cell - 16, cell - 16))
-        x, y = (i % cols) * cell, (i // cols) * cell
-        sheet.paste(im, (x + (cell - im.width) // 2, y + (cell - im.height) // 2))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    sheet.save(out)
-    return str(out)
-
-
 async def describe(kind: str, name: str, prompt: str, images: list[str], *, context: str = "",
                    identity_only: bool = False, outfit_only: bool = False) -> dict[str, Any]:
     """The asset's look (English), tags and -- for items -- category, from text and pictures.
@@ -171,15 +198,19 @@ async def describe(kind: str, name: str, prompt: str, images: list[str], *, cont
         ask = ('- "look": fill every field of the character sheet, concrete and specific enough that the '
                "character is recognisable in every picture; invent fitting details the notes and pictures "
                "leave open.")
+        if images:
+            # Invented scars or freckles would be drawn into every sheet and panel.
+            ask += (" With pictures, describe what they show; for Distinctive features name only marks that "
+                    "are clearly visible in them or given in the notes, otherwise write none.")
     else:
         shape = f'  "{field}": "..."'
         ask = f'- "{field}": {hint}. Concrete and visual, no story events.'
     text = f"""Create a {kind} asset for a story.
 Name: {name}
-{f"Context (the story and what is known so far -- stay true to it): {context[:2500]}" if context.strip() else ""}
+{context_block(context, bool(images))}
 User notes (any language): {prompt or '(none)'}
 {f'The {len(images)} attached picture(s) show this {kind}; describe what they show, and let the notes override them.' if images else ''}
-{GRAY_HINT if images and all(is_grayscale(p) for p in images) else ''}
+{color_hint(images)}
 
 Write in English:
 {ask}
@@ -191,9 +222,11 @@ Respond ONLY with JSON:
   "tags": ["alias:..."]{category}
 }}"""
     parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
-    for p in images:
+    for i, p in enumerate(images, 1):
         url = _data_url(p)
         if url:
+            kind_of = "black-and-white" if is_grayscale(p) else "COLOR"
+            parts.append({"type": "text", "text": f"Picture {i} ({kind_of}):"})
             parts.append({"type": "image_url", "image_url": {"url": url}})
     messages = [
         {"role": "system", "content": "You are a character and production designer. Respond with a single valid JSON object."},
@@ -273,10 +306,11 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
     """Queue the sheet/reference render with the asset's own pictures as references.
     ``target`` says where the worker writes the result (default: the project asset)."""
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
-    refs = images
-    if len(images) > 2:
-        refs = [collage(images, Path(images[0]).parent / "collage.png")]
+    refs = pick_refs(images) if images else []
     wf = _pick_workflow(len(refs))
+    if wf is None and len(refs) == 2:
+        refs = refs[:1]
+        wf = _pick_workflow(1)
     if wf is None:
         refs, wf = [], _pick_workflow(0)
     if wf is None:
@@ -294,6 +328,12 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
         prompt = item_image_prompt(entity)
         if refs:
             prompt += " Show the same object as the reference picture(s): same shape, colors and details."
+    if refs:
+        # Without this an identity-only sheet (no style) comes out photoreal.
+        prompt += " Draw in the same art style as the reference picture(s): same drawing style, line work and proportions."
+    if refs and any(not is_grayscale(p) for p in refs) and any(is_grayscale(p) for p in images):
+        prompt += (" Take hair, eye and skin colors from the color reference picture; the black-and-white "
+                   "picture only shows shapes.")
     if refs and all(is_grayscale(p) for p in images):
         # Ink/manga references would otherwise pull the render into black-and-white.
         prompt += (" The reference picture(s) are black-and-white line art: take only shapes and features from "

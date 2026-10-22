@@ -1,6 +1,7 @@
 """Asset tags, item categories and the cross-project asset library."""
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -104,12 +105,14 @@ def test_new_character_from_pictures_is_described_and_rendered(client, monkeypat
     values = (job.get("payload") or json.loads(job["payload_json"]))["input_values"]
     assert values["50"] == a["source_images"][0] and values["60"] == a["source_images"][1]
 
-    # Three pictures become one collage, which needs a one-reference workflow -- there is none here.
+    # Three pictures: the two best go in at full size (no collage).
     r3 = client.post(f"/api/projects/{pid}/assets/new", json={
         "kind": "item", "name": "Rifle", "image_paths": pics, "generate": False}).json()
     assert r3["job_id"] is None and len(r3["asset"]["source_images"]) == 3
-    assert client.post(f"/api/projects/{pid}/item/{r3['asset']['id']}/from-images").status_code == 422
-    assert Path(r3["asset"]["source_images"][0]).with_name("collage.png").exists()
+    again = client.post(f"/api/projects/{pid}/item/{r3['asset']['id']}/from-images").json()
+    values = client.get(f"/api/jobs/{again['job_id']}").json()["payload"]["input_values"]
+    assert values["50"] in r3["asset"]["source_images"] and values["60"] in r3["asset"]["source_images"]
+    assert not Path(r3["asset"]["source_images"][0]).with_name("collage.png").exists()
     assert client.post(f"/api/projects/{pid}/assets/new", json={
         "kind": "item", "name": "X", "image_paths": ["/etc/passwd"]}).status_code == 422
 
@@ -366,3 +369,52 @@ def test_black_and_white_pictures_get_explicit_colors_and_a_color_render(client,
     assert "black-and-white" not in seen[0]
     job2 = client.get(f"/api/jobs/{r2['job_id']}").json()
     assert "full color" not in (job2.get("payload") or json.loads(job2["payload_json"]))["prompt"]
+
+
+
+def test_color_picture_leads_and_style_is_kept(client, monkeypatch):
+    import calliope.agent.asset_create as ac
+    from calliope.config import settings
+
+    seen = []
+
+    async def fake_llm(messages, temperature=0.4, role=None):
+        seen.append([p.get("text") for p in messages[1]["content"] if p["type"] == "text"])
+        return {"look": {"Hair": "blue, shoulder-length"}, "tags": []}
+
+    monkeypatch.setattr(ac, "generate_structured", fake_llm)
+    up = Path(settings.assets_dir) / "uploads"
+    up.mkdir(parents=True, exist_ok=True)
+    pages = []
+    for i, size in enumerate([(400, 1200), (600, 900)]):
+        p = up / f"page{i}.png"
+        Image.new("L", size, 220).convert("RGB").save(p)
+        pages.append(str(p))
+    face = up / "face.png"
+    Image.new("RGB", (430, 340), (40, 60, 200)).save(face)
+    images = [*pages, str(face)]
+    assert ac.pick_refs(images) == [str(face), pages[0]]  # color first, then the tallest (full body)
+
+    asyncio.run(ac.describe("character", "Kaoru", "", images, identity_only=True))
+    texts = seen[0]
+    assert "Picture 3 (COLOR):" in texts and "Picture 1 (black-and-white):" in texts
+    assert "Take every color" in texts[0]
+
+    entity = {"id": 1, "name": "Kaoru", "appearance": "CHARACTER INFORMATION\nHair: blue", "source_images": images}
+    client.post("/api/workflows", json={"name": "Klein 2", "kind": "image", "workflow_json": {
+        "10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+        "50": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "A (Input:image)"}},
+        "60": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "B (Input:image)"}},
+        "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}})
+    pid = client.post("/api/projects", json={"title": "K"}).json()["id"]
+    job = ac.enqueue_from_images(pid, "character", entity)
+    prompt = job["payload"]["prompt"] if "payload" in job else json.loads(job["payload_json"])["prompt"]
+    assert "same art style as the reference" in prompt and "colors from the color reference" in prompt
+
+
+def test_pictures_overrule_an_earlier_draft():
+    from calliope.agent.asset_create import context_block
+
+    assert "stay true to it" in context_block("Story. Earlier draft: brown hair", False)
+    with_pics = context_block("Story. Earlier draft: brown hair", True)
+    assert "may be wrong" in with_pics and "pictures show replaces it" in with_pics and "stay true" not in with_pics
