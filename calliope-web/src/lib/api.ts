@@ -162,6 +162,8 @@ export interface Character {
 	consistency_prompt: string | null;
 	/** "key:value" or plain labels, e.g. "alias:Ripper Eddy". */
 	tags: string[];
+	/** The user's own pictures the asset was made from. */
+	source_images?: string[];
 }
 
 export interface Location {
@@ -171,6 +173,8 @@ export interface Location {
 	reference_image_path: string | null;
 	consistency_prompt: string | null;
 	tags: string[];
+	/** The user's own pictures the asset was made from. */
+	source_images?: string[];
 }
 
 export interface Item {
@@ -182,6 +186,8 @@ export interface Item {
 	tags: string[];
 	/** weapon, vehicle, device, … (free text). */
 	category: string | null;
+	/** The user's own pictures the asset was made from. */
+	source_images?: string[];
 }
 
 export type AssetKind = 'character' | 'location' | 'item';
@@ -214,6 +220,16 @@ export const assetLibraryApi = {
 	update: (assetId: number, payload: { name?: string; category?: string | null; tags?: string[] }) =>
 		api<LibraryAsset>(`/api/asset-library/${assetId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 	remove: (assetId: number) => api<{ ok: boolean }>(`/api/asset-library/${assetId}`, { method: 'DELETE' }),
+	create: (
+		projectId: number,
+		payload: { kind: AssetKind; name: string; prompt: string; image_paths: string[]; generate: boolean },
+	) =>
+		api<{ asset: Record<string, unknown>; job_id: number | null }>(`/api/projects/${projectId}/assets/new`, {
+			method: 'POST',
+			body: JSON.stringify(payload),
+		}),
+	fromImages: (projectId: number, kind: AssetKind, entityId: number) =>
+		api<{ job_id: number }>(`/api/projects/${projectId}/${kind}/${entityId}/from-images`, { method: 'POST' }),
 	suggestTags: (projectId: number) =>
 		api<Record<string, number>>(`/api/projects/${projectId}/assets/suggest-tags`, { method: 'POST' }),
 };

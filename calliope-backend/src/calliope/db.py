@@ -418,6 +418,9 @@ async def migrate_db(db_path: Path) -> None:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         if "tags" not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN tags TEXT")
+        # The user's own pictures an asset was made from (agent/asset_create.py).
+        if "source_images" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN source_images TEXT")
     item_cols = {r[1] for r in conn.execute("PRAGMA table_info(items)").fetchall()}
     if "category" not in item_cols:
         conn.execute("ALTER TABLE items ADD COLUMN category TEXT")
@@ -503,12 +506,13 @@ async def migrate_db(db_path: Path) -> None:
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     out = {key: row[key] for key in row.keys()}
-    # Asset tags are stored as JSON text; callers always see a list.
-    if "tags" in out:
-        try:
-            out["tags"] = json.loads(out["tags"]) if out["tags"] else []
-        except (TypeError, ValueError):
-            out["tags"] = []
+    # Asset tags and source pictures are stored as JSON text; callers always see a list.
+    for key in ("tags", "source_images"):
+        if key in out:
+            try:
+                out[key] = json.loads(out[key]) if out[key] else []
+            except (TypeError, ValueError):
+                out[key] = []
     return out
 
 

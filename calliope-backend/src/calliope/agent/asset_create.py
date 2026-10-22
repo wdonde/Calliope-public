@@ -1,0 +1,209 @@
+"""Create a character/location/item from a description and/or reference pictures.
+
+The user's pictures are kept with the asset (``source_images``). A vision
+model (the "assets" role) looks at them and writes the fixed look in English
+-- the same shape Draft Storyline asks for -- plus tags; without pictures the
+description alone is turned into that look. The sheet/reference image is then
+rendered with the pictures as references: one or two go in directly, more are
+tiled into one collage so a one-reference workflow can take them.
+"""
+from __future__ import annotations
+
+import base64
+import io
+import json
+import shutil
+import time
+from pathlib import Path
+from typing import Any
+
+from PIL import Image
+
+from calliope.agent.asset_tags import ITEM_CATEGORIES, name_tags, normalize_category, tags_json
+from calliope.agent.llm import generate_structured
+from calliope.agent.prompts import (
+    character_image_prompt,
+    character_sheet_prompt,
+    item_image_prompt,
+    item_reference_prompt,
+    location_image_prompt,
+    location_reference_prompt,
+)
+from calliope.comfyui.parser import parse_dynamic_inputs
+from calliope.comfyui.smart_fill import smart_fill_inputs
+from calliope.config import settings
+from calliope.db import get_db, row_to_dict
+from calliope.queue.manager import queue_manager
+
+TABLES = {"character": "characters", "location": "locations", "item": "items"}
+MAX_IMAGES = 6
+LOOK_HINT = {
+    "character": ("appearance", "fixed look for image generation: age, build, face, hair color and style, "
+                  "one distinctive mark, and ONE default outfit incl. headwear (40-70 words)"),
+    "location": ("description", "visual description for image generation: place, architecture or landscape, "
+                 "materials, light, mood (40-70 words)"),
+    "item": ("description", "visual description for image generation: shape, size, material, colors, "
+             "distinctive details (30-50 words)"),
+}
+
+
+def _data_url(path: str, size: int = 768) -> str | None:
+    try:
+        im = Image.open(path).convert("RGB")
+    except OSError:
+        return None
+    im.thumbnail((size, size))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=85)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def keep_images(project_id: int, kind: str, paths: list[str]) -> list[str]:
+    """Copy the user's pictures next to the project, so the upload area can be cleaned."""
+    dest = Path(settings.assets_dir) / str(project_id) / "refs" / f"{kind}-{int(time.time() * 1000)}"
+    out = []
+    for p in [p for p in paths if p and Path(p).is_file()][:MAX_IMAGES]:
+        dest.mkdir(parents=True, exist_ok=True)
+        target = dest / Path(p).name
+        shutil.copy2(p, target)
+        out.append(str(target))
+    return out
+
+
+def collage(paths: list[str], out: Path, size: int = 1536) -> str:
+    """All pictures side by side on white, in one image (for a one-reference workflow)."""
+    ims = [Image.open(p).convert("RGB") for p in paths]
+    cols = 2 if len(ims) <= 4 else 3
+    rows = -(-len(ims) // cols)
+    cell = size // cols
+    sheet = Image.new("RGB", (cell * cols, cell * rows), "white")
+    for i, im in enumerate(ims):
+        im.thumbnail((cell - 16, cell - 16))
+        x, y = (i % cols) * cell, (i // cols) * cell
+        sheet.paste(im, (x + (cell - im.width) // 2, y + (cell - im.height) // 2))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out)
+    return str(out)
+
+
+async def describe(kind: str, name: str, prompt: str, images: list[str]) -> dict[str, Any]:
+    """The asset's look (English), tags and -- for items -- category, from text and pictures."""
+    field, hint = LOOK_HINT[kind]
+    category = f',\n  "category": "one of {", ".join(ITEM_CATEGORIES)} or your own word"' if kind == "item" else ""
+    text = f"""Create a {kind} asset for a story.
+Name: {name}
+User notes (any language): {prompt or '(none)'}
+{f'The {len(images)} attached picture(s) show this {kind}; describe what they show, and let the notes override them.' if images else ''}
+
+Write in English:
+- "{field}": {hint}. Concrete and visual, no story events.
+- "tags": 1-5 short "key:value" tags with English keys (alias for other names or nicknames, faction, type, owner).
+
+Respond ONLY with JSON:
+{{
+  "{field}": "...",
+  "tags": ["alias:..."]{category}
+}}"""
+    parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    for p in images:
+        url = _data_url(p)
+        if url:
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+    messages = [
+        {"role": "system", "content": "You are a character and production designer. Respond with a single valid JSON object."},
+        {"role": "user", "content": parts if len(parts) > 1 else text},
+    ]
+    try:
+        result = await generate_structured(messages, temperature=0.4, role="assets" if images else "writer")
+    except Exception:  # noqa: BLE001 -- the notes still make a usable asset
+        result = {}
+    return {
+        field: (result.get(field) or prompt or name).strip(),
+        "tags": result.get("tags") or [],
+        "category": normalize_category(result.get("category")) if kind == "item" else None,
+    }
+
+
+def _pick_workflow(n_refs: int) -> int | None:
+    from calliope.agent.comic import _pick_workflow as pick  # Klein-first, by reference count
+
+    return pick(n_refs)
+
+
+def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any]) -> dict[str, Any] | None:
+    """Queue the sheet/reference render with the asset's own pictures as references."""
+    images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
+    refs = images
+    if len(images) > 2:
+        refs = [collage(images, Path(images[0]).parent / "collage.png")]
+    wf = _pick_workflow(len(refs))
+    if wf is None:
+        refs, wf = [], _pick_workflow(0)
+    if wf is None:
+        return None
+    if kind == "character":
+        prompt = character_image_prompt(entity, kind="sheet")
+        if refs:
+            prompt += (" The character looks exactly like the person in the reference picture(s): same face, "
+                       "hair, build and outfit; draw them in the sheet layout described above.")
+    elif kind == "location":
+        prompt = location_image_prompt(entity)
+        if refs:
+            prompt += " Show the same place as the reference picture(s): same layout, materials and light."
+    else:
+        prompt = item_image_prompt(entity)
+        if refs:
+            prompt += " Show the same object as the reference picture(s): same shape, colors and details."
+    conn = get_db(settings.db_path)
+    try:
+        wf_json = json.loads(conn.execute("SELECT workflow_json FROM workflows WHERE id = ?", (wf,)).fetchone()[0])
+    finally:
+        conn.close()
+    inputs = parse_dynamic_inputs(wf_json)
+    image_nodes = [str(i["nodeId"]) for i in inputs if i.get("kind") == "image"]
+    values = smart_fill_inputs(inputs, prompt=prompt, extra=dict(zip(image_nodes, refs)))
+    return queue_manager.enqueue(
+        project_id=project_id,
+        kind="image",
+        workflow_id=wf,
+        payload={"input_values": values, f"{kind}_id": entity["id"], "asset_target": "sheet", "prompt": prompt},
+    )
+
+
+async def create_asset(project_id: int, *, kind: str, name: str, prompt: str = "", image_paths: list[str] | None = None,
+                       generate: bool = True) -> dict[str, Any]:
+    images = keep_images(project_id, kind, image_paths or [])
+    look = await describe(kind, name, prompt, images)
+    tags = tags_json(name_tags(name) + list(look["tags"]))
+    conn = get_db(settings.db_path)
+    try:
+        if kind == "character":
+            seed = {"name": name, "appearance": look["appearance"], "role": "", "age": "", "personality": ""}
+            cur = conn.execute(
+                "INSERT INTO characters (project_id, name, appearance, consistency_prompt, tags, source_images) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (project_id, name, look["appearance"], character_sheet_prompt(seed), tags, json.dumps(images)),
+            )
+        elif kind == "location":
+            seed = {"name": name, "description": look["description"]}
+            cur = conn.execute(
+                "INSERT INTO locations (project_id, name, description, consistency_prompt, tags, source_images) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (project_id, name, look["description"], location_reference_prompt(seed), tags, json.dumps(images)),
+            )
+        else:
+            seed = {"name": name, "description": look["description"]}
+            cur = conn.execute(
+                "INSERT INTO items (project_id, name, description, consistency_prompt, tags, category, source_images) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (project_id, name, look["description"], item_reference_prompt(seed), tags, look["category"],
+                 json.dumps(images)),
+            )
+        conn.commit()
+        entity = row_to_dict(conn.execute(f"SELECT * FROM {TABLES[kind]} WHERE id = ?", (cur.lastrowid,)).fetchone())
+    finally:
+        conn.close()
+    entity["source_images"] = images
+    job = enqueue_from_images(project_id, kind, entity) if generate else None
+    return {"asset": entity, "job_id": job["id"] if job else None}
+

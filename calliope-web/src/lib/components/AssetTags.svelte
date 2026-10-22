@@ -16,8 +16,11 @@
 		onsave: (fields: { tags: string[]; category?: string | null }) => Promise<void> | void;
 		/** Omit to hide the "To library" link (e.g. in the library itself). */
 		ontolibrary?: () => void;
+		/** How many own pictures the asset has; with onfromimages shows "Re-render from pictures". */
+		pictures?: number;
+		onfromimages?: () => void;
 	}
-	let { tags, category = null, withCategory = false, active = null, onfilter, onsave, ontolibrary }: Props =
+	let { tags, category = null, withCategory = false, active = null, onfilter, onsave, ontolibrary, pictures = 0, onfromimages }: Props =
 		$props();
 
 	const CATEGORIES = ['weapon', 'vehicle', 'device', 'furniture', 'clothing', 'tool', 'creature', 'prop'];
@@ -70,6 +73,9 @@
 			{/each}
 			<button type="button" class="link" onclick={edit}>{tags.length || category ? t('assets.editTags') : t('assets.addTags')}</button>
 			{#if ontolibrary}<button type="button" class="link" onclick={ontolibrary}>{t('assets.toLibrary')}</button>{/if}
+			{#if pictures && onfromimages}
+				<button type="button" class="link" onclick={onfromimages}>{t('assets.fromPictures', { n: pictures })}</button>
+			{/if}
 		</div>
 	{/if}
 </div>

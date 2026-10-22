@@ -18,6 +18,7 @@
 	import AssetThumb from '$lib/components/AssetThumb.svelte';
 	import AssetTags from '$lib/components/AssetTags.svelte';
 	import LibraryPicker from '$lib/components/LibraryPicker.svelte';
+	import NewAssetDialog from '$lib/components/NewAssetDialog.svelte';
 	import ImageLightbox from '$lib/components/ImageLightbox.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -52,6 +53,7 @@
 	let search = $state('');
 	let activeTag = $state<string | null>(null);
 	let pickerOpen = $state(false);
+	let newOpen = $state(false);
 	let suggesting = $state(false);
 	const KIND_OF_TAB: Record<typeof tab, AssetKind> = { characters: 'character', locations: 'location', items: 'item' };
 
@@ -91,6 +93,16 @@
 			await assetLibraryApi.save(projectId, kind, id);
 			toast.success(t('assets.savedToLibrary', { name }));
 			await client.invalidateQueries({ queryKey: ['asset-library'] });
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		}
+	}
+
+	async function fromImages(kind: AssetKind, id: number) {
+		try {
+			await assetLibraryApi.fromImages(projectId, kind, id);
+			toast.success(t('assets.fromPicturesQueued'));
+			await client.invalidateQueries({ queryKey: ['jobs'] });
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : String(err));
 		}
@@ -722,7 +734,18 @@
 	{/if}
 	<Button size="sm" variant="secondary" loading={suggesting} onclick={suggestTags}>{t('assets.suggestTags')}</Button>
 	<Button size="sm" variant="secondary" onclick={() => (pickerOpen = true)}>{t('assets.fromLibrary')}</Button>
+	<Button size="sm" variant="primary" onclick={() => (newOpen = true)}>{t(`assets.new.${KIND_OF_TAB[tab]}`)}</Button>
 </div>
+
+<NewAssetDialog
+	bind:open={newOpen}
+	{projectId}
+	kind={KIND_OF_TAB[tab]}
+	oncreated={() => {
+		client.invalidateQueries({ queryKey: ['assets'] });
+		client.invalidateQueries({ queryKey: ['jobs'] });
+	}}
+/>
 
 <LibraryPicker
 	bind:open={pickerOpen}
@@ -968,6 +991,8 @@
 								onfilter={toggleTag}
 								onsave={(f) => saveTags('character', char.id, f)}
 								ontolibrary={() => toLibrary('character', char.id, char.name)}
+								pictures={char.source_images?.length ?? 0}
+								onfromimages={() => fromImages('character', char.id)}
 							/>
 							{#if char.appearance}
 								<p class="facts" title={char.appearance}>
@@ -1158,6 +1183,8 @@
 								onfilter={toggleTag}
 								onsave={(f) => saveTags('location', loc.id, f)}
 								ontolibrary={() => toLibrary('location', loc.id, loc.name)}
+								pictures={loc.source_images?.length ?? 0}
+								onfromimages={() => fromImages('location', loc.id)}
 							/>
 							{#if loc.description}
 								<p class="facts" title={loc.description}>
@@ -1343,6 +1370,8 @@
 								onfilter={toggleTag}
 								onsave={(f) => saveTags('item', item.id, f)}
 								ontolibrary={() => toLibrary('item', item.id, item.name)}
+								pictures={item.source_images?.length ?? 0}
+								onfromimages={() => fromImages('item', item.id)}
 							/>
 							{#if item.description}
 								<p class="facts" title={item.description}>

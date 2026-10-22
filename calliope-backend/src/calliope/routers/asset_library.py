@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from calliope.agent.asset_create import create_asset, enqueue_from_images
 from calliope.agent.asset_tags import normalize_category, suggest_tags, tags_json
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
@@ -46,6 +47,14 @@ class LibraryUpdate(BaseModel):
 
 class AddToProject(BaseModel):
     project_id: int
+
+
+class NewAsset(BaseModel):
+    kind: Kind
+    name: str = Field(..., min_length=1)
+    prompt: str = ""  # the user's notes, any language
+    image_paths: list[str] = []  # uploaded pictures (Playground uploads)
+    generate: bool = True
 
 
 def _library_dir(asset_id: int) -> Path:
@@ -181,3 +190,41 @@ async def delete_library_asset(asset_id: int) -> dict[str, bool]:
 @router.post("/projects/{project_id}/assets/suggest-tags")
 async def suggest_project_tags(project_id: int) -> dict[str, int]:
     return await suggest_tags(project_id)
+
+
+@router.post("/projects/{project_id}/assets/new")
+async def new_asset(project_id: int, payload: NewAsset) -> dict[str, Any]:
+    conn = get_db(settings.db_path)
+    try:
+        if not conn.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="Project not found")
+    finally:
+        conn.close()
+    assets_root = Path(settings.assets_dir).resolve()
+    for p in payload.image_paths:
+        try:
+            Path(p).resolve().relative_to(assets_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Image outside the assets folder: {p}") from exc
+    return await create_asset(project_id, kind=payload.kind, name=payload.name.strip(), prompt=payload.prompt,
+                              image_paths=payload.image_paths, generate=payload.generate)
+
+
+@router.post("/projects/{project_id}/{kind}/{entity_id}/from-images")
+async def regenerate_from_images(project_id: int, kind: Kind, entity_id: int) -> dict[str, Any]:
+    """Render the sheet/reference again from the asset's own pictures."""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute(f"SELECT * FROM {TABLES[kind]} WHERE id = ? AND project_id = ?",
+                           (entity_id, project_id)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    entity = row_to_dict(row)
+    if not entity.get("source_images"):
+        raise HTTPException(status_code=422, detail="This asset has no pictures of its own.")
+    job = enqueue_from_images(project_id, kind, entity)
+    if job is None:
+        raise HTTPException(status_code=422, detail="No enabled image workflow.")
+    return {"job_id": job["id"]}
