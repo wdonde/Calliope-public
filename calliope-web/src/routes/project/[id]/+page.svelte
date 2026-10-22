@@ -10,6 +10,7 @@
 	import ScriptStage from '$lib/components/ScriptStage.svelte';
 	import QueueStage from '$lib/components/QueueStage.svelte';
 	import ComicStage from '$lib/components/ComicStage.svelte';
+	import ActivityStatus from '$lib/components/ActivityStatus.svelte';
 	import ActivityPanel from '$lib/components/ActivityPanel.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -168,6 +169,7 @@
 	{:else}
 		<div class="workspace-bar">
 			<span class="stage-label">{STAGE_LABELS[activeTab]}</span>
+			<ActivityStatus {projectId} />
 			<Button
 				variant="secondary"
 				size="sm"

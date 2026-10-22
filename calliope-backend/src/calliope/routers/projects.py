@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from calliope.activity import tracked
 from calliope.agent.condense import condense_source
 from calliope.agent.idea_guard import is_long
 from calliope.authoring.projects import idea_preview
@@ -145,6 +146,7 @@ async def update_project(project_id: int, payload: ProjectUpdate):
 
 
 @router.post("/{project_id}/condense-idea", response_model=Project)
+@tracked("condense", "Summarizing the novel")
 async def condense_idea(project_id: int, payload: CondenseIdeaRequest):
     """Store a novel as ``source_text`` and replace ``idea`` with a condensed pitch.
 

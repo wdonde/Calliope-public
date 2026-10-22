@@ -5,6 +5,7 @@
 	 * dragged into place here; the export lays everything out (agent/comic.py).
 	 */
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import ActivityInline from '$lib/components/ActivityInline.svelte';
 	import { toStore } from 'svelte/store';
 	import { assetUrl, comicApi, type Bubble, type Panel } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
@@ -150,6 +151,7 @@
 <header class="stage-head">
 	<div>
 		<h2>{t('nav.panels')}</h2>
+		<ActivityInline {projectId} kinds={['panels']} />
 		<p class="muted">
 			{isManga ? t('comic.leadManga') : t('comic.leadWebtoon')}
 			{#if panels.length}· {t('comic.progress', { done: rendered, n: panels.length })}{/if}

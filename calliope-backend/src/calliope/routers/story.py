@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from calliope.activity import tracked
 from calliope.agent.idea_guard import LONG_IDEA_CHARS, LongSourceText, refuse_long_idea
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
@@ -266,6 +267,7 @@ async def _iter_story_chunks(
 
 
 @router.post("/{project_id}/generate-story")
+@tracked("storyline", "Drafting the storyline")
 async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any]:
     conn = get_db(settings.db_path)
     try:

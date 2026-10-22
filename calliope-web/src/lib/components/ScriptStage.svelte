@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import ActivityInline from '$lib/components/ActivityInline.svelte';
 	import { goto } from '$app/navigation';
 	import { toStore } from 'svelte/store';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -310,6 +311,7 @@
 <header class="stage-header">
 	<div>
 		<h2>3. Script</h2>
+		<ActivityInline {projectId} kinds={['script', 'clips']} agents />
 		<p class="muted">
 			Estimated duration: {formatClock(totalSec)}
 			{#if targetSec > 0}

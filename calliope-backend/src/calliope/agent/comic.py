@@ -24,6 +24,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+from calliope.activity import tracked
 from calliope.agent.llm import LLMClient
 from calliope.agent.prompts import guess_language
 from calliope.comfyui.parser import parse_dynamic_inputs
@@ -105,6 +106,7 @@ def _caption(heading: str | None) -> str:
     return re.sub(r"^(INT|EXT)\.?\s*", "", heading or "").strip().replace(" - ", " – ")
 
 
+@tracked("panels", "Planning panels")
 async def plan_panels(project_id: int, *, replan: bool = False) -> list[dict[str, Any]]:
     """Create (or with ``replan`` rebuild) a panel for every clip, in story order."""
     conn = get_db(settings.db_path)

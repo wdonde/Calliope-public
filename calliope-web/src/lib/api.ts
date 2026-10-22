@@ -83,6 +83,26 @@ export interface Panel {
 	clip_order: number;
 }
 
+export interface ActivityOp {
+	id: number;
+	kind: string;
+	label: string;
+	step: string | null;
+	elapsed_sec: number;
+}
+
+export interface ProjectActivity {
+	busy: boolean;
+	operations: ActivityOp[];
+	agents: { session_id: number; title: string }[];
+	jobs: { running: number; queued: number; current_kind: string | null };
+}
+
+export const activityApi = {
+	project: (projectId: number) => api<ProjectActivity>(`/api/activity?project_id=${projectId}`),
+	all: () => api<{ projects: Record<string, ProjectActivity> }>('/api/activity'),
+};
+
 export const comicApi = {
 	list: (projectId: number) => api<Panel[]>(`/api/projects/${projectId}/panels`),
 	plan: (projectId: number, replan = false) =>

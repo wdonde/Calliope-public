@@ -40,6 +40,10 @@ class EventBus:
             "data": data or {},
             "ts": datetime.now(timezone.utc).isoformat(),
         }
+        if event_type == "agent.thinking" and event["data"].get("project_id") is not None:
+            from calliope import activity
+
+            activity.note(event["data"]["project_id"], str(event["data"].get("message") or ""))
         # recent-append and queue delivery share the lock with subscribe()
         # so backlog snapshots are consistent (no duplicate/lost events).
         async with self._lock:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from calliope.activity import tracked
 from calliope.agent.idea_guard import refuse_long_idea
 from calliope.agent.llm import estimate_prompt_tokens, generate_structured
 from calliope.agent.source_passages import passage_for_scenes
@@ -262,6 +263,7 @@ def _persist_scenes(
     return created
 
 
+@tracked("script", "Writing the script")
 async def generate_script(
     project_id: int,
     *,

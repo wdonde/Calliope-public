@@ -13,6 +13,7 @@ import json
 import logging
 from typing import Any
 
+from calliope.activity import tracked
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import DEFAULT_CLIP_DURATION_SEC, estimate_scene_duration_sec
 from calliope.config import settings
@@ -176,6 +177,7 @@ def _normalize_clips(
     return clips
 
 
+@tracked("clips", "Breaking scenes into clips")
 async def expand_scene_coverage(
     project_id: int,
     scene_ids: list[int] | None = None,

@@ -6,15 +6,18 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import StatusChip from '$lib/components/ui/StatusChip.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	interface Props {
 		project: Project;
+		/** What is working in this project right now, if anything. */
+		busy?: string | null;
 	}
 
-	const { project }: Props = $props();
+	const { project, busy = null }: Props = $props();
 
 	const client = useQueryClient();
 
@@ -157,6 +160,12 @@
 				<div class="card-thumb-icon"><Icon name="video" size={26} /></div>
 			{/if}
 			<div class="card-status">
+				{#if busy}
+					<span class="busy-chip" title={busy}><Spinner size="sm" /> {t('activity.working')}</span>
+				{/if}
+				{#if project.format && project.format !== 'video'}
+					<span class="format-chip">{project.format}</span>
+				{/if}
 				<StatusChip status={project.status} label={t(`projectCard.status.${project.status}`)} />
 			</div>
 		</div>
@@ -269,6 +278,23 @@
 />
 
 <style>
+	.busy-chip,
+	.format-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin-right: 6px;
+		padding: 2px 8px;
+		border-radius: 999px;
+		font-size: 11px;
+		font-weight: 600;
+		background: rgb(0 0 0 / 0.55);
+		color: #fff;
+	}
+	.busy-chip {
+		background: color-mix(in srgb, var(--accent) 70%, black);
+	}
+
 	.project-card {
 		position: relative;
 		background: var(--bg-surface);

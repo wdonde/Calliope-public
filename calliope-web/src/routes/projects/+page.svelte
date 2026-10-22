@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { projects, settings as settingsApi, type Project } from '$lib/api';
+	import { activityApi, projects, settings as settingsApi, type Project, type ProjectActivity } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -93,6 +93,17 @@
 	// The backend's own threshold (settings.long_idea_chars, from the model's
 	// context window), shown before submit; the backend stays the authority.
 	const settingsQuery = createQuery({ queryKey: ['settings'], queryFn: settingsApi.get });
+	const activityQuery = createQuery({
+		queryKey: ['activity', 'all'],
+		queryFn: activityApi.all,
+		refetchInterval: 5000,
+	});
+	function busyLabel(a: ProjectActivity | undefined): string | null {
+		if (!a?.busy) return null;
+		if (a.operations.length) return a.operations.at(-1)!.label;
+		if (a.agents.length) return t('activity.agentWorkingTitle', { title: a.agents[0].title });
+		return t('activity.jobsLine', { running: a.jobs.running, queued: a.jobs.queued });
+	}
 	const ideaLimit = $derived($settingsQuery.data?.long_idea_chars ?? 2000);
 	const ideaTooLong = $derived(idea.length > ideaLimit);
 	let condense = $state(true);
@@ -382,7 +393,7 @@
 	{:else}
 		<div class="grid">
 			{#each filtered as project (project.id)}
-				<ProjectCard {project} />
+				<ProjectCard {project} busy={busyLabel($activityQuery.data?.projects[String(project.id)])} />
 			{/each}
 			<button type="button" class="new-card" onclick={openForm}>
 				<div class="new-card-icon"><Icon name="plus" size={24} /></div>

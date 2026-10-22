@@ -17,6 +17,7 @@ from calliope.config import settings
 from calliope.db import get_db, migrate_db, rebase_stale_asset_paths
 from calliope.queue.worker import queue_worker
 from calliope.routers import (
+    activity as activity_router,
     agent,
     assets,
     canvas,
@@ -140,6 +141,7 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
     app.include_router(canvas.router, prefix="/api/canvas", tags=["canvas"])
     app.include_router(shots.router, prefix="/api/shots", tags=["shots"])
     app.include_router(comic.router, prefix="/api", tags=["comic"])
+    app.include_router(activity_router.router, prefix="/api/activity", tags=["activity"])
     app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
     app.include_router(events.router, prefix="/api/events", tags=["events"])
 

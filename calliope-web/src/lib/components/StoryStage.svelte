@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import ActivityInline from '$lib/components/ActivityInline.svelte';
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import {
 		projects,
@@ -439,6 +440,7 @@
 		<h3 class="card-h">{t('story.ideaTitle')}</h3>
 		{@render saveIndicator()}
 	{/snippet}
+	<ActivityInline {projectId} kinds={['condense']} />
 	<textarea
 		class="field-textarea"
 		bind:value={ideaDraft}
@@ -592,6 +594,7 @@
 <Card>
 	{#snippet header()}
 		<h3 class="card-h">{t('story.beatsTitle')}</h3>
+		<ActivityInline {projectId} kinds={['storyline']} agents />
 		<div class="head-actions">
 			{#if story.beats.length}
 				<StatusChip status="ready" label={beatCountLabel(story.beats.length)} />
