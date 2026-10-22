@@ -11,6 +11,7 @@
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import { toast } from '$lib/toast';
 	import { readTextFile, TEXT_FILE_ACCEPT, titleFromFileName } from '$lib/textFile';
+	import { COMIC_DEFAULT_LENGTH, COMIC_LENGTHS } from '$lib/durationBudget';
 
 	const client = useQueryClient();
 
@@ -77,6 +78,11 @@
 	let title = $state('');
 	// Fixed for the project's life: video, webtoon strip or manga pages.
 	let format = $state<'video' | 'webtoon' | 'manga'>('video');
+	// Comics measure length in panels (webtoon) or pages (manga).
+	let comicLength = $state('20 panels');
+	$effect(() => {
+		if (format !== 'video' && !COMIC_LENGTHS[format].includes(comicLength)) comicLength = COMIC_DEFAULT_LENGTH[format];
+	});
 	const FORMATS = [
 		{ id: 'video', icon: 'film', key: 'projects.formatVideo', hint: 'projects.formatVideoHint' },
 		{ id: 'webtoon', icon: 'image', key: 'projects.formatWebtoon', hint: 'projects.formatWebtoonHint' },
@@ -136,7 +142,7 @@
 			idea: pendingNovel ? undefined : idea.trim() || undefined,
 			genre: genre || undefined,
 			tone: tone || undefined,
-			target_duration: duration || undefined,
+			target_duration: format === 'video' ? duration || undefined : comicLength,
 		});
 	}
 
@@ -293,11 +299,17 @@
 				</label>
 				<label class="field">
 					<span class="field-label">{t('projects.duration')}</span>
-					<select class="field-select" bind:value={duration}>
-						{#each Object.keys(DURATIONS) as v (v)}
-							<option value={v}>{t(DURATIONS[v])}</option>
-						{/each}
-					</select>
+					{#if format === 'video'}
+						<select class="field-select" bind:value={duration}>
+							{#each Object.keys(DURATIONS) as v (v)}
+								<option value={v}>{t(DURATIONS[v])}</option>
+							{/each}
+						</select>
+					{:else}
+						<select class="field-select" bind:value={comicLength}>
+							{#each COMIC_LENGTHS[format] as v (v)}<option value={v}>{v}</option>{/each}
+						</select>
+					{/if}
 					<p class="field-hint">{t('projects.durationHint')}</p>
 				</label>
 			</div>

@@ -13,6 +13,7 @@ import json
 import logging
 from typing import Any
 
+from calliope.agent import comic_prompts
 from calliope.activity import tracked
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import DEFAULT_CLIP_DURATION_SEC, estimate_scene_duration_sec
@@ -207,6 +208,7 @@ async def expand_scene_coverage(
         if not scenes:
             raise ValueError("No scenes to expand — generate a script first")
 
+        fmt = (conn.execute("SELECT format FROM projects WHERE id = ?", (project_id,)).fetchone() or [None])[0]
         char_rows = conn.execute(
             "SELECT id, name, appearance FROM characters WHERE project_id = ?",
             (project_id,),
@@ -232,13 +234,27 @@ async def expand_scene_coverage(
                     "project_id": project_id,
                 },
             )
-            messages = _coverage_messages(
-                scene=scene,
-                characters=characters,
-                previous_heading=prev_heading,
-                next_heading=next_heading,
-                clip_cap=cap,
-            )
+            if comic_prompts.is_comic(fmt):
+                # Panels, not shots: still images, ~2.5 per scene, no durations.
+                lines = _dialog_lines(scene.get("dialog"))
+                messages = comic_prompts.comic_coverage_messages(
+                    fmt=fmt,
+                    scene=scene,
+                    characters=characters,
+                    numbered_dialog="\n".join(f"{i + 1}. {ln}" for i, ln in enumerate(lines))
+                    or "(no dialogue in this scene)",
+                    panels_hint=max(1, round(len(lines) / 2) + 1),
+                    previous_heading=prev_heading,
+                    next_heading=next_heading,
+                )
+            else:
+                messages = _coverage_messages(
+                    scene=scene,
+                    characters=characters,
+                    previous_heading=prev_heading,
+                    next_heading=next_heading,
+                    clip_cap=cap,
+                )
             if guidance:
                 messages[1]["content"] += f"\n\nExtra direction from the user: {guidance}"
             result = await generate_structured(messages, temperature=0.5, role="writer")

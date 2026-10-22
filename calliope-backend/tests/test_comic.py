@@ -112,3 +112,64 @@ def test_render_queues_a_job_per_missing_panel(client, tmp_path):
     payload = json.loads(get_db(settings.db_path).execute(
         "SELECT payload_json FROM jobs WHERE id = ?", (panel["job_id"],)).fetchone()[0])
     assert payload["panel_id"] == panel["id"] and payload["input_values"]["10"] == panel["prompt"]
+
+
+def test_comic_lengths_count_panels_not_seconds():
+    from calliope.agent.prompts import recommend_beat_count, recommend_scene_count
+
+    assert recommend_beat_count("20 panels", "webtoon") == 6
+    assert recommend_scene_count("20 panels", "webtoon") == 8
+    assert recommend_beat_count("16 pages", "manga") == 23  # 80 panels
+    assert recommend_beat_count("2 minutes") == 10  # video unchanged
+
+
+def test_comic_story_prompt_has_no_video_wording():
+    from calliope.agent.prompts import story_generation_user_prompt, story_system
+
+    webtoon = story_generation_user_prompt("T", "idea", "Sci-Fi", "dark", "20 panels", "webtoon")
+    assert "webtoon episode" in webtoon and "cliffhanger" in webtoon
+    assert "video" not in webtoon.lower() and "seconds" not in webtoon
+    assert "manga studio" in story_system("manga")
+    assert "AI-generated video" in story_generation_user_prompt("T", "i", "g", "t", "2 minutes")
+
+
+def test_comic_script_and_panels_use_comic_prompts(client, monkeypatch):
+    import calliope.agent.coverage_agent as coverage
+    import calliope.agent.script_agent as script
+
+    seen: list[str] = []
+
+    async def fake_script(messages, temperature=0.7, **kw):
+        seen.append(messages[0]["content"] + messages[1]["content"])
+        n = int(__import__("re").search(r"exactly (\d+) scenes", messages[1]["content"]).group(1))
+        return {"scenes": [{"heading": "INT. HALL - NIGHT", "action": "Mia waits.", "dialog": "MIA: Hallo?\nMIA: Ist da wer?",
+                            "duration_sec": 2} for _ in range(n)]}
+
+    async def fake_cover(messages, temperature=0.5, **kw):
+        seen.append(messages[0]["content"] + messages[1]["content"])
+        return {"clips": [{"order_index": 1, "description": "Wide shot: Mia in the hall.",
+                           "dialog_lines_covered": [1, 2], "shot_size": "wide", "duration_sec": 1}]}
+
+    monkeypatch.setattr(script, "generate_structured", fake_script)
+    monkeypatch.setattr(coverage, "generate_structured", fake_cover)
+    pid = client.post("/api/projects", json={"title": "W", "format": "webtoon", "idea": "x",
+                                              "target_duration": "10 panels"}).json()["id"]
+    r = client.post(f"/api/projects/{pid}/generate-script")
+    assert r.status_code == 200, r.text
+    assert any("webtoon episode" in s and "STILL images" in s for s in seen)
+    assert any("PANELS (still images)" in s for s in seen)
+    assert not any("AI-video shot clips" in s for s in seen)
+
+
+def test_story_text_follows_the_idea_language():
+    from calliope.agent.comic_prompts import comic_script_chunk_messages
+    from calliope.agent.prompts import story_generation_user_prompt
+
+    de = ("Eine junge Bäckerin namens Lina entdeckt, dass ihr Sauerteig sprechen kann. Er warnt sie vor einem "
+          "Drachen, der die Stadt bedroht, und sie backen zusammen ein Brot für den Drachen.")
+    assert "LANGUAGE: write titles" in story_generation_user_prompt("T", de, "g", "t", "10 panels", "webtoon")
+    assert "in German" in comic_script_chunk_messages(
+        fmt="webtoon", title="T", idea=de, beats=[], characters=[], locations=[], target_duration="10 panels",
+        scene_count=4, chunk_start=1, chunk_scenes=4)[1]["content"]
+    en = "A young baker named Lina finds out that her sourdough starter can talk and warns her about the dragon in the town."
+    assert "LANGUAGE" not in story_generation_user_prompt("T", en, "g", "t", "2 minutes")

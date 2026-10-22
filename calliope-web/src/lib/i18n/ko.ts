@@ -429,6 +429,7 @@ export const ko: Dict = {
 	'story.targetLength': '목표 길이',
 	'story.lengthsHint': '완성된 영상은 얼마나 길어야 하나요?',
 	'story.lengthHint': '비트와 장면 수를 결정합니다.',
+	'story.comicLengthHint': '~{panels} panels → {beats} beats, {scenes} scenes.',
 	'story.draftStoryline': '스토리라인 초안 작성',
 	'story.externallyAuthored': 'calliope-cli로 작성됨. 덮어쓰지 않도록 내장 초안 작성이 숨겨져 있습니다.',
 	'story.condense': 'Store as novel & summarize',

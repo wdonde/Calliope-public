@@ -429,6 +429,7 @@ export const es: Dict = {
 	'story.targetLength': 'Duración objetivo',
 	'story.lengthsHint': '¿Cuánto debería durar el vídeo final?',
 	'story.lengthHint': 'Orienta el número de beats y escenas.',
+	'story.comicLengthHint': '~{panels} panels → {beats} beats, {scenes} scenes.',
 	'story.draftStoryline': 'Redactar argumento',
 	'story.externallyAuthored': 'Historia escrita con calliope-cli. El generador integrado está oculto para no sobrescribirla.',
 	'story.condense': 'Store as novel & summarize',

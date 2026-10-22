@@ -429,6 +429,7 @@ export const en = {
 	'story.targetLength': 'Target length',
 	'story.lengthsHint': 'How long should the finished video feel?',
 	'story.lengthHint': 'Guides beat and scene counts.',
+	'story.comicLengthHint': '~{panels} panels → {beats} beats, {scenes} scenes.',
 	'story.draftStoryline': 'Draft storyline',
 	'story.externallyAuthored': 'Story authored with calliope-cli. The built-in drafter is hidden so it cannot overwrite it.',
 	'story.condense': 'Store as novel & summarize',

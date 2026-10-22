@@ -429,6 +429,7 @@ export const de: Dict = {
 	'story.targetLength': 'Ziellänge',
 	'story.lengthsHint': 'Wie lang soll sich das fertige Video anfühlen?',
 	'story.lengthHint': 'Steuert die Anzahl der Beats und Szenen.',
+	'story.comicLengthHint': '~{panels} panels → {beats} beats, {scenes} scenes.',
 	'story.draftStoryline': 'Storyline entwerfen',
 	'story.externallyAuthored': 'Story mit calliope-cli geschrieben. Der eingebaute Entwurf ist ausgeblendet, damit er sie nicht überschreibt.',
 	'story.condense': 'Als Roman speichern & zusammenfassen',

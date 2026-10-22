@@ -5,6 +5,17 @@ import re
 from pathlib import Path
 from typing import Any
 
+from calliope.agent import comic_prompts
+
+
+def story_system(fmt: str | None = None) -> str:
+    """STORY_GENERATION_SYSTEM, with the studio named for comic formats."""
+    if comic_prompts.is_comic(fmt):
+        return STORY_GENERATION_SYSTEM.replace(
+            "an AI video studio", comic_prompts.medium(fmt, None)["studio"]
+        ).replace("Longer target runtimes", "Longer chapters and episodes")
+    return STORY_GENERATION_SYSTEM
+
 
 STORY_GENERATION_SYSTEM = (
     "You are a story development assistant for an AI video studio. "
@@ -83,17 +94,22 @@ def estimate_target_seconds(target_duration: str | None) -> int:
     return 60
 
 
-def recommend_beat_count(target_duration: str | None) -> int:
+def recommend_beat_count(target_duration: str | None, fmt: str | None = None) -> int:
     """
     Story beats for the AI video pipeline (~12s of narrative weight each).
     30s -> 4, 2 min -> 10, 5 min -> 25, 10 min -> 50 (capped at 60).
+    Comics (``fmt`` webtoon/manga) count panels instead: ~3.5 panels per beat.
     """
+    if comic_prompts.is_comic(fmt):
+        return comic_prompts.beat_count(target_duration, fmt)
     secs = estimate_target_seconds(target_duration)
     return max(4, min(60, round(secs / 12)))
 
 
-def recommend_scene_count(target_duration: str | None) -> int:
-    """Video scenes (~7s each) for the target runtime."""
+def recommend_scene_count(target_duration: str | None, fmt: str | None = None) -> int:
+    """Video scenes (~7s each) for the target runtime; comics ~2.5 panels per scene."""
+    if comic_prompts.is_comic(fmt):
+        return comic_prompts.scene_count(target_duration, fmt)
     secs = estimate_target_seconds(target_duration)
     return max(4, min(90, round(secs / 7)))
 
@@ -104,13 +120,23 @@ def story_generation_user_prompt(
     genre: str | None,
     tone: str | None,
     target_duration: str | None,
+    fmt: str | None = None,
 ) -> str:
     secs = estimate_target_seconds(target_duration)
-    beat_n = recommend_beat_count(target_duration)
-    return f"""Create a story brief for an AI-generated video.
+    beat_n = recommend_beat_count(target_duration, fmt)
+    comic = comic_prompts.medium(fmt, target_duration) if comic_prompts.is_comic(fmt) else None
+    brief = comic["brief"] if comic else "an AI-generated video"
+    length_line = comic["length"] if comic else f"estimated_runtime_seconds: {secs}"
+    scale_rule = (
+        comic["scale"] + "."
+        if comic
+        else f"For ~{secs}s (~{secs // 60} min), beats are fine-grained plot steps (~12 seconds of story weight each) so Script can later expand into many short video clips."
+    )
+    craft = comic["craft"] + "\n" if comic else ""
+    return f"""Create a story brief for {brief}.
 
 required_beat_count: {beat_n}
-estimated_runtime_seconds: {secs}
+{length_line}
 target_duration_text: {target_duration or "short (~30 seconds)"}
 
 Title: {title or "Untitled"}
@@ -122,10 +148,10 @@ Tone: {tone or "cinematic, atmospheric"}
 1. The JSON field "beats" MUST contain EXACTLY {beat_n} objects.
 2. order_index must run 1, 2, 3, ... {beat_n} with no gaps.
 3. Do NOT summarize into a short arc. Do NOT return 5-8 beats for a long runtime.
-4. For ~{secs}s (~{secs // 60} min), beats are fine-grained plot steps (~12 seconds of story weight each) so Script can later expand into many short video clips.
+4. {scale_rule}
 5. Cover full arc across all {beat_n} beats: setup, rising complications, midpoint turn, escalation, climax, resolution — spread across the whole list, not compressed into the first few items.
 6. If you are unsure, add more concrete incident beats rather than fewer abstract ones.
-
+{craft}{story_language_rule(idea)}
 === OUTPUT SCHEMA (JSON only) ===
 {{
   "title": "a compelling story title",
@@ -166,12 +192,13 @@ def build_story_messages(
     genre: str | None,
     tone: str | None,
     target_duration: str | None,
+    fmt: str | None = None,
 ) -> list[dict[str, str]]:
     return [
-        {"role": "system", "content": STORY_GENERATION_SYSTEM},
+        {"role": "system", "content": story_system(fmt)},
         {
             "role": "user",
-            "content": story_generation_user_prompt(title, idea, genre, tone, target_duration),
+            "content": story_generation_user_prompt(title, idea, genre, tone, target_duration, fmt),
         },
     ]
 
@@ -185,17 +212,27 @@ def story_brief_chunk_prompt(
     *,
     total_beats: int,
     chunk_beats: int,
+    fmt: str | None = None,
 ) -> str:
     """First story call: the full brief (title/logline/cast/locations/items)
     PLUS the first `chunk_beats` beats. Later beats come from
     `story_beats_chunk_prompt`. Keeps the arc plan for `total_beats` so the
     cast and first beats are set up to scale across the whole story."""
     secs = estimate_target_seconds(target_duration)
-    return f"""Create a story brief for an AI-generated video, then write its FIRST beats.
+    comic = comic_prompts.medium(fmt, target_duration) if comic_prompts.is_comic(fmt) else None
+    brief = comic["brief"] if comic else "an AI-generated video"
+    length_line = comic["length"] if comic else f"estimated_runtime_seconds: {secs}"
+    scale_rule = (
+        comic["scale"] + "."
+        if comic
+        else f"For ~{secs}s (~{secs // 60} min), beats are fine-grained plot steps (~12 seconds\n   of story weight each)."
+    )
+    craft = comic["craft"].replace("7.", "6.") + "\n" if comic else ""
+    return f"""Create a story brief for {brief}, then write its FIRST beats.
 
 total_beat_count: {total_beats}
 THIS CHUNK: exactly {chunk_beats} beats, order_index 1 through {chunk_beats}.
-estimated_runtime_seconds: {secs}
+{length_line}
 target_duration_text: {target_duration or "short (~30 seconds)"}
 
 Title: {title or "Untitled"}
@@ -209,10 +246,9 @@ Tone: {tone or "cinematic, atmospheric"}
 2. order_index must run 1, 2, 3, ... {chunk_beats} with no gaps.
 3. These are the OPENING beats of a {total_beats}-beat arc — set up the world and
    characters; do NOT resolve the story or jump to the climax.
-4. For ~{secs}s (~{secs // 60} min), beats are fine-grained plot steps (~12 seconds
-   of story weight each).
+4. {scale_rule}
 5. Introduce the recurring characters, locations, and items the whole story needs.
-
+{craft}{story_language_rule(idea)}
 === OUTPUT SCHEMA (JSON only) ===
 {{
   "title": "a compelling story title",
@@ -259,6 +295,22 @@ def guess_language(text: str) -> str | None:
     return best if scores[best] >= 5 else None
 
 
+def story_language_rule(text: str | None) -> str:
+    """One prompt line keeping story text in the idea's language (prompt stays English).
+
+    Small models answer an English prompt in English even when the idea is
+    German, so the language is named explicitly. Empty for English or unclear text.
+    """
+    lang = guess_language(text or "")
+    if not lang or lang == "English":
+        return ""
+    return (
+        f"LANGUAGE: write titles, logline, beat and scene descriptions, action, dialogue, roles and "
+        f"personality in {lang}. Write appearance and location/item descriptions (used for image "
+        "generation) in English. Keep names as given.\n"
+    )
+
+
 def source_outline_block(summaries: list[str]) -> str:
     """The novel part by part, for Draft Storyline (projects.source_summaries)."""
     if not summaries:
@@ -303,6 +355,7 @@ def story_beats_chunk_prompt(
     previous_beats: list[dict[str, Any]],
     cast_summary: str,
     source_outline: str | None = None,
+    fmt: str | None = None,
 ) -> str:
     """Continuation call: ONLY beats {chunk_start}..{chunk_start+chunk_beats-1},
     given the established brief and the beats already written."""
@@ -339,8 +392,8 @@ Beats already written (CONTINUE from here — same characters, escalating, no re
 1. The JSON field "beats" MUST contain EXACTLY {chunk_beats} objects.
 2. order_index must run {chunk_start}, {chunk_start + 1}, ... {last} with no gaps.
 3. Do NOT repeat or contradict the beats already written; advance the plot.
-4. Fine-grained concrete incidents (~12 seconds of story weight each), visual and
-   cinematic. Reuse the established characters and locations.
+4. Fine-grained concrete incidents ({comic_prompts.medium(fmt, None)["weight"] if comic_prompts.is_comic(fmt) else "~12 seconds of story weight each"}), visual and
+   {"drawable as still images" if comic_prompts.is_comic(fmt) else "cinematic"}. Reuse the established characters and locations.
 
 Respond ONLY with JSON:
 {{
@@ -541,7 +594,7 @@ Locations:
    the part that falls at scenes {chunk_start}–{last}.
 5. If earlier scenes are listed above, continue them naturally — same characters,
    consistent location, no abrupt reset{'' if previous_tail else ' (this is the first chunk)'}.
-
+{story_language_rule(idea)}
 === ACTION (full visible action prose — the fidelity contract) ===
 Each scene's "action" is the complete on-screen action for that scene, present tense,
 ONE flowing natural-English paragraph — no bullet points, no labeled fragments (do NOT

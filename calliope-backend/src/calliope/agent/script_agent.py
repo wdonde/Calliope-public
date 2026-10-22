@@ -1,11 +1,13 @@
 """Generate scene scripts via LLM and persist them."""
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any
 
 from calliope.activity import tracked
 from calliope.agent.idea_guard import refuse_long_idea
+from calliope.agent import comic_prompts
 from calliope.agent.llm import estimate_prompt_tokens, generate_structured
 from calliope.agent.source_passages import passage_for_scenes
 from calliope.agent.prompts import (
@@ -88,7 +90,10 @@ async def _request_chunk(
     chunk_scenes: int,
     previous_tail: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    messages = build_script_chunk_messages(
+    builder = build_script_chunk_messages
+    if comic_prompts.is_comic(p.get("format")):
+        builder = functools.partial(comic_prompts.comic_script_chunk_messages, fmt=p["format"])
+    messages = builder(
         title=p["title"],
         idea=p.get("idea"),
         beats=beats,
@@ -309,7 +314,7 @@ async def generate_script(
             "SELECT COUNT(*) AS n FROM scenes WHERE project_id = ?",
             (project_id,),
         ).fetchone()["n"]
-        recommended = recommend_scene_count(p.get("target_duration"))
+        recommended = recommend_scene_count(p.get("target_duration"), p.get("format"))
         # Prefer explicit request, else keep at least the board the user already built
         requested = scene_count if scene_count and scene_count > 0 else existing_n
         required_scenes = max(recommended, int(requested)) if requested else recommended

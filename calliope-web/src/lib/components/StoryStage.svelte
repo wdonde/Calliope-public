@@ -15,6 +15,13 @@
 		estimateTargetSeconds,
 		recommendBeatCount,
 		recommendSceneCount,
+		buildComicStoryDraftPromptPreview,
+		COMIC_DEFAULT_LENGTH,
+		COMIC_LENGTHS,
+		comicBeatCount,
+		comicPanelCount,
+		comicSceneCount,
+		isComic,
 	} from '$lib/durationBudget';
 	import { toast } from '$lib/toast';
 	import { readTextFile, TEXT_FILE_ACCEPT } from '$lib/textFile';
@@ -110,8 +117,11 @@
 	let saveState = $state<SaveState>('idle');
 	let savedTimer: ReturnType<typeof setTimeout> | null = null;
 
-	const beatBudget = $derived(recommendBeatCount(lengthDraft));
-	const sceneBudget = $derived(recommendSceneCount(lengthDraft));
+	// Comics measure length in panels/pages, not seconds (agent/comic_prompts.py).
+	const fmt = $derived(story.project.format ?? 'video');
+	const comic = $derived(isComic(fmt));
+	const beatBudget = $derived(comic ? comicBeatCount(lengthDraft, fmt) : recommendBeatCount(lengthDraft));
+	const sceneBudget = $derived(comic ? comicSceneCount(lengthDraft, fmt) : recommendSceneCount(lengthDraft));
 	const secsBudget = $derived(estimateTargetSeconds(lengthDraft));
 	// A project authored through calliope-cli keeps its beats, cast and scenes
 	// out of the built-in generators' way. "Draft Storyline" would refuse with a
@@ -174,7 +184,7 @@
 		},
 	});
 	const draftPromptPreview = $derived(
-		buildStoryDraftPromptPreview({
+		(comic ? (a: Parameters<typeof buildStoryDraftPromptPreview>[0]) => buildComicStoryDraftPromptPreview({ ...a, format: fmt }) : buildStoryDraftPromptPreview)({
 			title: story.project.title,
 			idea: ideaDraft,
 			genre: genreDraft,
@@ -187,7 +197,12 @@
 		ideaDraft = story.project.idea ?? '';
 		genreDraft = story.project.genre || GENRES[0];
 		toneDraft = story.project.tone || TONES[0];
-		lengthDraft = story.project.target_duration || '2 minutes';
+		lengthDraft =
+			story.project.target_duration && (!isComic(story.project.format) || /panel|page/i.test(story.project.target_duration))
+				? story.project.target_duration
+				: isComic(story.project.format)
+					? COMIC_DEFAULT_LENGTH[story.project.format!]
+					: '2 minutes';
 	});
 
 	$effect(() => {
@@ -543,16 +558,26 @@
 		</label>
 		<label class="field">
 			<span class="field-label">{t('story.targetLength')}</span>
-			<input
-				class="field-input"
-				type="text"
-				bind:value={lengthDraft}
-				placeholder={LENGTHS_HINT}
-				onblur={() => void persistSettings()}
-			/>
-			<span class="field-hint beat-hint">
-				{t('story.lengthHint', { secs: secsBudget, beats: beatBudget, scenes: sceneBudget })}
-			</span>
+			{#if comic}
+				<select class="field-select" bind:value={lengthDraft} onchange={() => void persistSettings()}>
+					{#each COMIC_LENGTHS[fmt] as l (l)}<option value={l}>{l}</option>{/each}
+					{#if !COMIC_LENGTHS[fmt].includes(lengthDraft)}<option value={lengthDraft}>{lengthDraft}</option>{/if}
+				</select>
+				<span class="field-hint beat-hint">
+					{t('story.comicLengthHint', { panels: comicPanelCount(lengthDraft, fmt), beats: beatBudget, scenes: sceneBudget })}
+				</span>
+			{:else}
+				<input
+					class="field-input"
+					type="text"
+					bind:value={lengthDraft}
+					placeholder={LENGTHS_HINT}
+					onblur={() => void persistSettings()}
+				/>
+				<span class="field-hint beat-hint">
+					{t('story.lengthHint', { secs: secsBudget, beats: beatBudget, scenes: sceneBudget })}
+				</span>
+			{/if}
 		</label>
 		<label class="field">
 			<span class="field-label">{t('projects.tone')}</span>

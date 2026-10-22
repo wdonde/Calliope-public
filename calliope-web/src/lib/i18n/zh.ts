@@ -429,6 +429,7 @@ export const zh: Dict = {
 	'story.targetLength': '目标时长',
 	'story.lengthsHint': '成片视频应该有多长？',
 	'story.lengthHint': '用于指导节拍与场景数量。',
+	'story.comicLengthHint': '~{panels} panels → {beats} beats, {scenes} scenes.',
 	'story.draftStoryline': '起草故事线',
 	'story.externallyAuthored': '故事由 calliope-cli 写入，内置起草按钮已隐藏，避免覆盖。',
 	'story.condense': 'Store as novel & summarize',

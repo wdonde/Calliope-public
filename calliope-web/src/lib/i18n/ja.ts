@@ -429,6 +429,7 @@ export const ja: Dict = {
 	'story.targetLength': '目標の長さ',
 	'story.lengthsHint': '完成した動画はどのくらいの長さにしますか？',
 	'story.lengthHint': 'ビート数とシーン数の目安になります。',
+	'story.comicLengthHint': '~{panels} panels → {beats} beats, {scenes} scenes.',
 	'story.draftStoryline': 'ストーリーラインを作成',
 	'story.externallyAuthored': 'calliope-cli で執筆済み。上書きしないよう、組み込みの下書き作成は非表示にしています。',
 	'story.condense': 'Store as novel & summarize',

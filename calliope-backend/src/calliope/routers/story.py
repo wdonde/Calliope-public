@@ -12,7 +12,7 @@ from calliope.agent.idea_guard import LONG_IDEA_CHARS, LongSourceText, refuse_lo
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
     source_outline_block,
-    STORY_GENERATION_SYSTEM,
+    story_system,
     build_story_messages,
     character_sheet_prompt,
     item_reference_prompt,
@@ -112,7 +112,8 @@ async def _iter_story_chunks(
     chunk behave exactly like the old single call, including the corrective
     retry.
     """
-    system = STORY_GENERATION_SYSTEM
+    fmt = project.get("format")
+    system = story_system(fmt)
     # A condensed novel brings its part-by-part outline; the generators see it
     # appended to the idea, never the novel itself.
     outline = source_outline_block(_source_summaries(project))
@@ -124,6 +125,7 @@ async def _iter_story_chunks(
             genre=project["genre"],
             tone=project["tone"],
             target_duration=project["target_duration"],
+            fmt=fmt,
         )
         result = await generate_structured(messages, temperature=0.7, role="writer")
         beats_out = result.get("beats") or []
@@ -148,6 +150,7 @@ async def _iter_story_chunks(
                         project["genre"],
                         project["tone"],
                         project["target_duration"],
+                        fmt,
                     )
                     + (
                         f"\n\nPREVIOUS ATTEMPT FAILED: it only had {len(beats_out)} beats. "
@@ -177,6 +180,7 @@ async def _iter_story_chunks(
         project["target_duration"],
         total_beats=required_beats,
         chunk_beats=first_n,
+        fmt=fmt,
     )
     brief_messages = [
         {"role": "system", "content": system},
@@ -244,6 +248,7 @@ async def _iter_story_chunks(
             previous_beats=written_tail,
             cast_summary=cast_summary,
             source_outline=outline or None,
+            fmt=fmt,
         )
         chunk = await _request_beats_chunk(system, user, want=want)
         if not chunk:
@@ -279,7 +284,7 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
         # half of the problem.
         refuse_long_idea(project, generator="storyline generator")
 
-        required_beats = recommend_beat_count(project.get("target_duration"))
+        required_beats = recommend_beat_count(project.get("target_duration"), project.get("format"))
         await event_bus.publish(
             "agent.thinking",
             {
