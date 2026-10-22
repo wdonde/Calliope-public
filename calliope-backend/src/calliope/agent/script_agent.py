@@ -4,7 +4,8 @@ from __future__ import annotations
 from typing import Any
 
 from calliope.agent.idea_guard import refuse_long_idea
-from calliope.agent.llm import generate_structured
+from calliope.agent.llm import estimate_prompt_tokens, generate_structured
+from calliope.agent.source_passages import passage_for_scenes
 from calliope.agent.prompts import (
     build_script_chunk_messages,
     estimate_scene_duration_sec,
@@ -45,6 +46,13 @@ async def _request_chunk(
         chunk_scenes=chunk_scenes,
         previous_tail=previous_tail,
     )
+    # A stored novel contributes the original text these scenes come from.
+    passage = passage_for_scenes(
+        p, chunk_start, chunk_start + chunk_scenes - 1, required_scenes,
+        prompt_tokens=estimate_prompt_tokens(messages),
+    )
+    if passage:
+        messages[1] = {**messages[1], "content": messages[1]["content"] + "\n\n" + passage}
     result = await generate_structured(messages, temperature=0.7)
     scenes = result.get("scenes") or []
     if len(scenes) < chunk_scenes:

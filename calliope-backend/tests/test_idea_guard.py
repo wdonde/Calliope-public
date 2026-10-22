@@ -54,8 +54,23 @@ def test_the_boundary_is_the_repositorys_own_number():
 
 
 def test_exactly_at_the_threshold_is_still_a_logline():
-    assert not is_long("x" * LONG_IDEA_CHARS)
-    assert is_long("x" * (LONG_IDEA_CHARS + 1))
+    from calliope.config import settings
+
+    limit = settings.long_idea_chars()
+    assert limit >= LONG_IDEA_CHARS
+    assert not is_long("x" * limit)
+    assert is_long("x" * (limit + 1))
+
+
+def test_threshold_follows_the_context_window(monkeypatch):
+    from calliope.config import settings
+
+    # Settings is a pydantic model: patch the method on its class.
+    monkeypatch.setattr(type(settings), "context_window_tokens", lambda self: 16384)
+    cpt = max(float(settings.llm_chars_per_token or 1.6), 0.5)
+    assert settings.long_idea_chars() == max(LONG_IDEA_CHARS, int((16384 - 6000) * cpt))
+    monkeypatch.setattr(type(settings), "context_window_tokens", lambda self: 4096)
+    assert settings.long_idea_chars() == LONG_IDEA_CHARS  # never below the floor
 
 
 @pytest.mark.parametrize("value", [None, 0, "", 12345, b"bytes", [], {}])

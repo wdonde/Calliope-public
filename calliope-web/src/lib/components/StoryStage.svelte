@@ -118,8 +118,9 @@
 	// left there to fail -- and it is the one button that would delete a
 	// CLI-authored board outright, since it replaces beats and cast wholesale.
 	const externallyAuthored = $derived(story.project.ingest_mode === 'external');
-	// Over the backend's LONG_IDEA_CHARS (agent/idea_guard.py) the drafter refuses.
-	const ideaTooLong = $derived(ideaDraft.length > 2000);
+	// Over the backend's limit (settings.long_idea_chars) the drafter refuses.
+	const ideaLimit = $derived(story.project.idea_limit ?? 2000);
+	const ideaTooLong = $derived(ideaDraft.length > ideaLimit);
 	const sourceChars = $derived(story.project.source_chars ?? 0);
 	let fileInput = $state<HTMLInputElement | null>(null);
 	let outlineOpen = $state(false);
@@ -446,7 +447,7 @@
 		onblur={() => void persistSettings()}
 	></textarea>
 	{#if ideaTooLong && !externallyAuthored}
-		<p class="field-warn">{t('story.ideaTooLongHint')}</p>
+		<p class="field-warn">{t('story.ideaTooLongHint', { n: ideaLimit.toLocaleString() })}</p>
 	{:else if sourceChars}
 		<p class="field-hint">{t('story.sourceStored', { n: sourceChars.toLocaleString() })}</p>
 	{/if}

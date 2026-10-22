@@ -401,7 +401,7 @@ export const fr: Dict = {
 	'story.outlinePart': 'Part {n}',
 	'story.outlineSave': 'Save outline',
 	'story.outlineSaved': 'Outline saved',
-	'story.ideaTooLongHint': 'Over 2,000 characters — the built-in generators refuse this. Let the AI condense it; the full text is kept.',
+	'story.ideaTooLongHint': 'Over {n} characters — the built-in generators refuse this. Let the AI condense it; the full text is kept.',
 	'story.draftPromptTitle': 'Prompt de rédaction',
 	'story.promptExplain': "Le brief final que l'agent utilise pour structurer l'histoire.",
 	'story.showPrompt': 'Afficher le prompt',

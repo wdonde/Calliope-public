@@ -32,9 +32,10 @@ from __future__ import annotations
 
 from typing import Any
 
-# Above this many characters, `idea` is a source text rather than a logline.
-# Matches `agent/harness/plugins/workspace.py`'s existing `project_idea_large`
-# warning, so the repository has one number rather than two that disagree.
+from calliope.config import settings
+
+# The floor. The live limit is settings.long_idea_chars(), which grows with the
+# model's context window (16k tokens -> ~33,000 characters).
 LONG_IDEA_CHARS = 2000
 
 
@@ -52,7 +53,7 @@ def is_long(idea: Any) -> bool:
     Total on purpose: ``None`` and non-strings are never long, so a caller
     that forgot to coerce cannot accidentally trip the guard.
     """
-    return isinstance(idea, str) and len(idea) > LONG_IDEA_CHARS
+    return isinstance(idea, str) and len(idea) > settings.long_idea_chars()
 
 
 def refuse_long_idea(project: dict[str, Any], *, generator: str) -> None:

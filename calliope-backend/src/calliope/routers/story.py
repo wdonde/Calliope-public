@@ -515,6 +515,7 @@ async def get_story(project_id: int) -> dict[str, Any]:
                 **row_to_dict(project),
                 # The novel outline Draft Storyline reads; editable in the Story stage.
                 "source_summaries": _source_summaries(row_to_dict(project)),
+                "idea_limit": settings.long_idea_chars(),
             },
             "beats": [row_to_dict(b) for b in beats],
             "characters": [row_to_dict(c) for c in characters],

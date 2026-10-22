@@ -73,3 +73,19 @@ def test_outline_names_the_story_language():
     assert "in German" in source_outline_block(de)
     en = ["The captain lands on the planet and fights the monsters with his rifle in the dark of the night."] * 3
     assert "LANGUAGE" not in source_outline_block(en)
+
+
+def test_script_passage_covers_the_matching_novel_parts(monkeypatch):
+    import json as _json
+
+    from calliope.agent import source_passages
+    from calliope.config import settings
+
+    monkeypatch.setattr(type(settings), "context_window_tokens", lambda self: 16384)
+    parts = [f"Teil {i} " + ("x" * 5800) for i in range(1, 9)]
+    project = {"source_text": "\n\n".join(parts), "source_summaries": _json.dumps([f"s{i}" for i in range(8)])}
+    first = source_passages.passage_for_scenes(project, 1, 3, 12)
+    last = source_passages.passage_for_scenes(project, 10, 12, 12)
+    assert "Teil 1 " in first and "Teil 8 " not in first
+    assert "Teil 8 " in last and "Teil 1 " not in last
+    assert source_passages.passage_for_scenes({"source_text": ""}, 1, 3, 12) is None

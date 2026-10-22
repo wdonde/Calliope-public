@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { projects, type Project } from '$lib/api';
+	import { projects, settings as settingsApi, type Project } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -83,11 +83,11 @@
 	let search = $state('');
 	let filter = $state('all');
 
-	// 2000 is the backend's own threshold (`agent/idea_guard.py`), restated as a
-	// literal because a form that only discovers the limit on submit is a form
-	// that lies. The backend stays the authority -- this only warns, and a
-	// project created this way is still `builtin` and so still gets the 422.
-	const ideaTooLong = $derived(idea.length > 2000);
+	// The backend's own threshold (settings.long_idea_chars, from the model's
+	// context window), shown before submit; the backend stays the authority.
+	const settingsQuery = createQuery({ queryKey: ['settings'], queryFn: settingsApi.get });
+	const ideaLimit = $derived($settingsQuery.data?.long_idea_chars ?? 2000);
+	const ideaTooLong = $derived(idea.length > ideaLimit);
 	let condense = $state(true);
 	// Off: the genre, tone and length picked below survive the summary.
 	let fillFields = $state(true);
@@ -228,7 +228,7 @@
 						</label>
 					{/if}
 					{#if !condense}
-						<p class="field-warn">{t('projects.ideaTooLong')}</p>
+						<p class="field-warn">{t('projects.ideaTooLong', { n: ideaLimit.toLocaleString() })}</p>
 					{/if}
 				{/if}
 			</label>

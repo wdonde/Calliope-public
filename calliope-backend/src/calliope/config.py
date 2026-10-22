@@ -378,6 +378,17 @@ class Settings(BaseSettings):
                 return n
         return max(1024, int(self.llm_context_fallback_tokens or 32768))
 
+    def long_idea_chars(self) -> int:
+        """Longest Story idea the built-in generators take in one prompt.
+
+        Derived from the context window instead of a fixed 2,000: what is left
+        after ~6k tokens for instructions and the answer, at the same
+        `llm_chars_per_token` the prompt estimator uses. Never below 2,000.
+        """
+        usable = self.context_window_tokens() - 6000
+        cpt = max(float(self.llm_chars_per_token or 1.6), 0.5)
+        return max(2000, int(usable * cpt))
+
     def history_char_budget(self) -> int:
         """Character ceiling for the derived chat history.
 
@@ -523,6 +534,7 @@ class Settings(BaseSettings):
             "llm_api_key": bool(self.llm_api_key),
             "llm_profiles": profiles,
             "llm_active_id": self.llm_active_id,
+            "long_idea_chars": self.long_idea_chars(),
             "llm_context_tokens": int(self.llm_context_tokens or 0),
             "llm_context_fallback_tokens": int(self.llm_context_fallback_tokens),
             "llm_chars_per_token": float(self.llm_chars_per_token),

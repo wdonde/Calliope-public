@@ -29,6 +29,8 @@ export interface Project {
 	source_chars?: number | null;
 	/** Part-by-part outline of the stored novel; Draft Storyline reads it. */
 	source_summaries?: string[];
+	/** Longest Story idea the built-in generators take (story endpoint only). */
+	idea_limit?: number;
 	created_at: string;
 	updated_at: string;
 	stats?: ProjectStats;
@@ -169,6 +171,8 @@ export interface LlmTestResponse extends LlmModelsResponse {
 }
 
 export interface Settings {
+	/** Longest Story idea the built-in generators take (from the context window). */
+	long_idea_chars?: number;
 	host: string;
 	port: number;
 	data_dir: string;
