@@ -5,16 +5,22 @@ The built-in generators refuse an ``idea`` above ``LONG_IDEA_CHARS``
 closes that gap the other way round: it reads the novel in chunks with the
 "story" role's model, then writes one chronological summary short enough to
 prompt with. The novel itself is kept in ``projects.source_text``.
+
+The prompt templates live in the ``novel-condense`` skill (Settings -> Agent
+skills) so they can be edited without touching code; a missing or broken
+section falls back to the built-in template below.
 """
 from __future__ import annotations
 
 import logging
 import re
 from collections.abc import Awaitable, Callable
+from string import Template
 from typing import Any
 
 from calliope.agent.idea_guard import LONG_IDEA_CHARS
 from calliope.agent.llm import LLMClient, extract_json
+from calliope.agent.skills_store import ensure_builtin_skills, read_skill_file
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,57 @@ DURATIONS = ("30 seconds", "1 minute", "2 minutes", "5 minutes", "10 minutes")
 AUTO_DURATIONS = DURATIONS[:3]
 
 Progress = Callable[[str], Awaitable[None]]
+
+SKILL = "novel-condense"
+# Built-in templates; the skill file ships the same text as its starting point.
+DEFAULT_TEMPLATES = {
+    "part-summary": (
+        "Summarize part $part of $parts of a story in 4-6 sentences, written in $lang. "
+        "Name the main characters with their appearance, the locations and the key events.\n"
+        'Answer: {"summary": "..."}\n\nPART:\n$text'
+    ),
+    "project-fields": (
+        "Below are summaries of every part of a story, in order. Fill in the fields for a short-film project:\n"
+        "- title: the story's title, in $lang\n"
+        '- genre: 1-3 genres in English, e.g. "Sci-Fi, Action"\n'
+        '- tone: mood and visual style in a few English words, e.g. "Cinematic, dark, atmospheric"\n'
+        "- target_duration: exactly one of $durations -- this becomes a SHORT video, even for a long novel.\n"
+        "- idea: a summary of the WHOLE plot in $lang, $min_chars to $max_chars characters, strictly "
+        "chronological: every part gets at least one sentence. Exciting events (conflict, danger, turning "
+        "points, surprises) take priority over explanations. Name the main and important side characters "
+        "with a short appearance, and the locations. Render the ending exactly, including its last twist, "
+        "hint or open question. No generic closing sentences.\n"
+        'Answer: {"title": "...", "genre": "...", "tone": "...", "target_duration": "...", "idea": "..."}\n\n'
+        "SUMMARIES:\n$text"
+    ),
+    "shorten": (
+        "Rewrite the following text shorter: at most $max_chars characters, same order and same language, "
+        "keep every character and turning point, drop only details.\n"
+        'Answer: {"idea": "<the complete shortened text>"}\n\nTEXT:\n$text'
+    ),
+}
+_SECTION_RE = re.compile(r"^##\s+([\w-]+)\s*\n+```[\w-]*\n(.*?)\n```", re.MULTILINE | re.DOTALL)
+
+
+def load_templates() -> dict[str, Template]:
+    """Templates from the ``novel-condense`` skill, built-ins where it has none.
+
+    A section only counts when it still contains ``$text`` -- without it the
+    model would never see the novel, which is a broken edit, not a choice.
+    """
+    templates = dict(DEFAULT_TEMPLATES)
+    try:
+        ensure_builtin_skills()
+        skill = read_skill_file(SKILL)
+    except OSError:
+        skill = {"ok": False}
+    if skill.get("ok"):
+        for name, body in _SECTION_RE.findall(skill["content"]):
+            if name in templates and "$text" in body:
+                templates[name] = body.strip()
+            elif name in templates:
+                logger.warning("condense: skill section %r has no $text; using the built-in one", name)
+    return {name: Template(body) for name, body in templates.items()}
 
 
 def split_text(text: str, size: int = CHUNK_CHARS) -> list[str]:
@@ -63,11 +120,16 @@ async def condense_source(
 ) -> dict[str, str]:
     """Return ``{title, genre, tone, target_duration, idea}`` for ``text``.
 
-    The prompts are English (models follow English instructions most reliably);
     ``idea`` is written in ``language``, by default the source text's own
-    language. ``idea`` is guaranteed to be at most ``LONG_IDEA_CHARS`` characters.
+    language, and is guaranteed to be at most ``LONG_IDEA_CHARS`` characters.
     """
-    lang = language or "the same language as the source text"
+    tpl = load_templates()
+    common = {
+        "lang": language or "the same language as the source text",
+        "durations": ", ".join(AUTO_DURATIONS),
+        "min_chars": TARGET_CHARS - 600,
+        "max_chars": TARGET_CHARS,
+    }
     client = LLMClient.for_role("story", timeout=600.0)
     try:
         chunks = split_text(text)
@@ -75,41 +137,23 @@ async def condense_source(
         for i, chunk in enumerate(chunks, 1):
             if progress:
                 await progress(f"Reading part {i}/{len(chunks)} of the source text...")
-            out = await _ask(client, (
-                f"Summarize part {i} of {len(chunks)} of a story in 4-6 sentences, written in {lang}. "
-                "Name the main characters with their appearance, the locations and the key events.\n"
-                'Answer: {"summary": "..."}\n\nPART:\n' + chunk
+            out = await _ask(client, tpl["part-summary"].safe_substitute(
+                common, part=i, parts=len(chunks), text=chunk
             ))
             summaries.append(str(out.get("summary") or "").strip())
 
         if progress:
             await progress("Writing the condensed story idea...")
         numbered = "\n".join(f"{i}. {s}" for i, s in enumerate(summaries, 1))
-        fields = await _ask(client, (
-            "Below are summaries of every part of a story, in order. Fill in the fields for a short-film project:\n"
-            f"- title: the story's title, in {lang}\n"
-            '- genre: 1-3 genres in English, e.g. "Sci-Fi, Action"\n'
-            '- tone: mood and visual style in a few English words, e.g. "Cinematic, dark, atmospheric"\n'
-            f"- target_duration: exactly one of {', '.join(AUTO_DURATIONS)} -- this becomes a SHORT video, "
-            "even for a long novel.\n"
-            f"- idea: a summary of the WHOLE plot in {lang}, {TARGET_CHARS - 600} to {TARGET_CHARS} "
-            "characters, strictly chronological: every part gets at least one sentence. Exciting events "
-            "(conflict, danger, turning points, surprises) take priority over explanations. Name the main and "
-            "important side characters with a short appearance, and the locations. Render the ending exactly, "
-            "including its last twist, hint or open question. No generic closing sentences.\n"
-            'Answer: {"title": "...", "genre": "...", "tone": "...", "target_duration": "...", "idea": "..."}\n\n'
-            "SUMMARIES:\n" + numbered
-        ))
+        fields = await _ask(client, tpl["project-fields"].safe_substitute(common, text=numbered))
         idea = str(fields.get("idea") or "").strip()
         for _ in range(2):
             if len(idea) <= TARGET_CHARS + 200:
                 break
             if progress:
                 await progress(f"Shortening the idea ({len(idea)} characters)...")
-            short = str((await _ask(client, (
-                f"Rewrite the following text shorter: at most {TARGET_CHARS - 200} characters, same order and "
-                "same language, keep every character and turning point, drop only details. "
-                'Answer: {"idea": "<the complete shortened text>"}\n\nTEXT:\n' + idea
+            short = str((await _ask(client, tpl["shorten"].safe_substitute(
+                common, max_chars=TARGET_CHARS - 200, text=idea
             ))).get("idea") or "").strip()
             if len(short) < 300:  # a comment instead of the text -- keep the longer one
                 break
