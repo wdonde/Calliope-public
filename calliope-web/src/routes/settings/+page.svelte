@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { beforeNavigate, goto, afterNavigate } from '$app/navigation';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import ModelSelect from '$lib/components/settings/ModelSelect.svelte';
 	import SettingsNav from '$lib/components/settings/SettingsNav.svelte';
 	import WorkflowsLibrary from '$lib/components/settings/WorkflowsLibrary.svelte';
 	import SkillsLibrary from '$lib/components/settings/SkillsLibrary.svelte';
@@ -408,10 +409,19 @@
 		return info ? info.capabilities : null;
 	}
 
-	/** "gpt-oss:20b" is installed when a profile's model contains "gpt-oss". */
-	function installed(s: Settings, model: string): boolean {
-		const family = model.split(':')[0].replace(/[\d.]+$/, '');
-		return workingProfiles(s).some((p) => (p.model ?? '').includes(family));
+	// Capabilities each role works best with, shown next to its name.
+	const ROLE_WANTS: Record<string, string[]> = {
+		main: ['tools', 'thinking'], planner: ['tools', 'thinking'], story: ['tools', 'thinking'],
+		script: ['tools', 'thinking'], assets: ['vision', 'tools'], video: ['vision'], writer: [],
+	};
+
+	/** best/ok/avoid for an installed model, matched by family ("qwen3-vl" before "qwen3"). */
+	function recTag(role: string, model: string): 'best' | 'ok' | 'avoid' | undefined {
+		const m = model.toLowerCase();
+		const recs = [...(ROLE_RECOMMEND[role] ?? [])]
+			.map((r) => ({ r, family: r.model.split(':')[0].replace(/[\d.]+$/, '') }))
+			.sort((a, b) => b.family.length - a.family.length);
+		return recs.find(({ family }) => m.includes(family))?.r.tag;
 	}
 
 	function assignmentValue(s: Settings, key: string): string {
@@ -956,41 +966,31 @@
 					{#each AGENT_ROLES as role (role.key)}
 						{@const caps = roleCaps(s, role.key)}
 						{@const missing = caps ? (ROLE_NEEDS[role.key] ?? []).filter((c) => !caps.includes(c)) : []}
-						<label class="field">
-							<span class="field-label">{t(role.labelKey)}</span>
-							<select
-								class="field-input"
+						<div class="field">
+							<span class="field-label role-head">
+								{t(role.labelKey)}
+								{#each ROLE_WANTS[role.key] ?? [] as c (c)}<span class="cap">{c}</span>{/each}
+							</span>
+							<ModelSelect
 								value={assignmentValue(s, role.key)}
-								onchange={(e) => setAssignment(s, role.key, e.currentTarget.value)}
-							>
-								<option value="">{t('settings.useActiveLlm')}</option>
-								{#each workingProfiles(s) as p (p.id)}
-									<option value={p.id}>{p.name} — {p.model}</option>
-								{/each}
-							</select>
+								emptyLabel={t('settings.useActiveLlm')}
+								options={workingProfiles(s).map((p) => ({
+									id: p.id,
+									label: `${p.name} — ${p.model}`,
+									caps: $capsQuery.data?.[p.id]?.capabilities ?? null,
+									tag: recTag(role.key, p.model ?? ''),
+								}))}
+								onchange={(v) => setAssignment(s, role.key, v)}
+							/>
 							<p class="field-hint">{t(role.hintKey)}</p>
-							<div class="recommend">
-								<span class="rec-label">Selected</span>
-								<span class="rec-model-name">{roleProfile(s, role.key)?.model ?? '—'}</span>
-								{#if caps}
-									{#each caps as c (c)}<span class="cap">{c}</span>{/each}
-									{#each missing as c (c)}<span class="cap cap-missing">missing: {c}</span>{/each}
-								{:else}
-									<span class="rec-why">capabilities unknown</span>
-								{/if}
-							</div>
-							<div class="recommend">
-								<span class="rec-label">Recommended</span>
-								{#each ROLE_RECOMMEND[role.key] ?? [] as r (r.model)}
-									<span class="rec-chip rec-{r.tag}" title={r.why}>
-										{#if r.tag === 'avoid'}avoid:{/if}<span class="rec-model">{r.model}</span>
-										{#each r.caps as c (c)}<span class="cap">{c}</span>{/each}
-										{#if installed(s, r.model)}<span class="rec-installed">installed</span>{/if}
-										<span class="rec-why">{r.why}</span>
-									</span>
-								{/each}
-							</div>
-						</label>
+							{#if missing.length}
+								<p class="field-hint missing-note">
+									{roleProfile(s, role.key)?.model} lacks
+									{#each missing as c (c)}<span class="cap cap-missing">{c}</span>{/each}
+									— this role needs it.
+								</p>
+							{/if}
+						</div>
 					{/each}
 				</section>
 				<section class="panel">
@@ -1249,45 +1249,16 @@
 />
 
 <style>
-	.recommend {
+	.role-head {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		gap: 6px;
-		margin-top: 6px;
-		font-size: 12px;
 	}
-	.rec-label {
-		color: var(--text-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		font-size: 11px;
-	}
-	.rec-chip {
-		display: inline-flex;
+	.missing-note {
+		display: flex;
+		align-items: center;
 		gap: 6px;
-		align-items: baseline;
-		padding: 2px 8px;
-		border-radius: 999px;
-		border: 1px solid var(--border, #3f3f46);
-		color: var(--text-secondary);
-	}
-	.rec-best {
-		border-color: var(--accent);
-		color: var(--text-primary);
-		font-weight: 600;
-	}
-	.rec-avoid {
-		border-color: var(--danger, #ef4444);
-		color: var(--danger, #ef4444);
-	}
-	.rec-avoid .rec-model {
-		text-decoration: line-through;
-	}
-	.rec-model-name {
-		color: var(--text-primary);
-		font-family: ui-monospace, monospace;
-		font-size: 12px;
+		color: #fca5a5;
 	}
 	/* Capability badges in the style of ollama.com */
 	.cap {
@@ -1302,14 +1273,6 @@
 	.cap-missing {
 		background: color-mix(in srgb, #ef4444 18%, transparent);
 		color: #fca5a5;
-	}
-	.rec-installed {
-		font-size: 11px;
-		color: #86efac;
-	}
-	.rec-why {
-		font-weight: 400;
-		color: var(--text-muted);
 	}
 
 	.shell {
