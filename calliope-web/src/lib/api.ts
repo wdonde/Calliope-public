@@ -363,6 +363,11 @@ export const projects = {
 
 export const settings = {
 	get: () => api<Settings>('/api/settings'),
+	/** Capabilities per LLM profile id as Ollama reports them (null = unknown server). */
+	llmCapabilities: () =>
+		api<Record<string, { capabilities: string[]; parameters?: string | null } | null>>(
+			'/api/settings/llm/capabilities',
+		),
 	update: (payload: Record<string, unknown>) =>
 		api<Settings>('/api/settings', { method: 'POST', body: JSON.stringify(payload) }),
 	/**

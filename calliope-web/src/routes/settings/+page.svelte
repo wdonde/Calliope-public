@@ -38,6 +38,11 @@
 		queryKey: ['settings'],
 		queryFn: settings.get,
 	});
+	const capsQuery = createQuery({
+		queryKey: ['llm-capabilities'],
+		queryFn: settings.llmCapabilities,
+		staleTime: 5 * 60_000,
+	});
 
 	let draft = $state<Record<string, unknown>>({});
 	let apiKeyDrafts = $state<Record<string, string>>({});
@@ -361,32 +366,53 @@
 		{ key: 'writer', labelKey: 'settings.roleWriter', hintKey: 'settings.roleWriterHint' },
 	];
 
-	// Model families that worked (or failed) for each role in local tests.
-	type Rec = { model: string; tag: 'best' | 'ok' | 'avoid'; why: string };
-	const TOOLS_AGENT: Rec[] = [
-		{ model: 'gpt-oss', tag: 'best', why: 'reliable tool calls' },
-		{ model: 'Qwen3 / Qwen3-VL', tag: 'ok', why: 'tool calls, faster' },
-		{ model: 'Mistral Small', tag: 'avoid', why: 'announces tool calls without making them' },
-	];
+	// Concrete Ollama models per role (capabilities as listed on ollama.com),
+	// ranked by how they did in local tests with Calliope.
+	type Rec = { model: string; caps: string[]; tag: 'best' | 'ok' | 'avoid'; why: string };
+	const GPT_OSS: Rec = { model: 'gpt-oss:20b', caps: ['tools', 'thinking'], tag: 'best', why: 'reliable tool calls' };
+	const QWEN3: Rec = { model: 'qwen3:14b', caps: ['tools', 'thinking'], tag: 'ok', why: 'tool calls, faster' };
+	const QWEN3_VL: Rec = { model: 'qwen3-vl:8b', caps: ['vision', 'tools', 'thinking'], tag: 'ok', why: 'fast, sees images' };
+	const MISTRAL: Rec = { model: 'mistral-small3.2:24b', caps: ['vision', 'tools'], tag: 'avoid', why: 'announces tool calls without making them' };
+	const TOOLS_AGENT: Rec[] = [GPT_OSS, QWEN3, QWEN3_VL, MISTRAL];
 	const ROLE_RECOMMEND: Record<string, Rec[]> = {
 		main: TOOLS_AGENT,
 		planner: TOOLS_AGENT,
 		story: TOOLS_AGENT,
 		script: TOOLS_AGENT,
-		assets: [
-			{ model: 'Qwen3-VL', tag: 'best', why: 'vision + tool calls' },
-			{ model: 'gpt-oss', tag: 'ok', why: 'tool calls, no vision' },
-		],
+		assets: [{ ...QWEN3_VL, tag: 'best', why: 'vision + tool calls' }, { ...GPT_OSS, tag: 'ok', why: 'no vision' }],
 		video: [
-			{ model: 'Qwen3-VL', tag: 'best', why: 'vision, fast prompt rewrites' },
-			{ model: 'gpt-oss', tag: 'ok', why: 'no vision' },
+			{ ...QWEN3_VL, tag: 'best', why: 'vision, fast prompt rewrites' },
+			{ model: 'gemma3:12b', caps: ['vision'], tag: 'ok', why: 'vision, good prose' },
 		],
 		writer: [
-			{ model: 'Mistral Small', tag: 'best', why: 'faithful long-form writing, strong German' },
-			{ model: 'gpt-oss', tag: 'ok', why: 'solid, sometimes returns empty long texts' },
-			{ model: 'Qwen3-VL 8B', tag: 'ok', why: 'fast, weaker prose' },
+			{ ...MISTRAL, tag: 'best', why: 'faithful long-form writing, strong German' },
+			{ ...GPT_OSS, tag: 'ok', why: 'solid, sometimes returns empty long texts' },
+			{ ...QWEN3_VL, why: 'fast, weaker prose' },
 		],
 	};
+	// What a role cannot work without.
+	const ROLE_NEEDS: Record<string, string[]> = {
+		main: ['tools'], planner: ['tools'], story: ['tools'], script: ['tools'],
+		assets: ['vision', 'tools'], video: ['vision'], writer: [],
+	};
+
+	/** The profile a role actually uses: its assignment, else the active LLM. */
+	function roleProfile(s: Settings, key: string): LlmProfile | undefined {
+		const id = assignmentValue(s, key) || workingActiveId(s);
+		return workingProfiles(s).find((p) => p.id === id);
+	}
+
+	function roleCaps(s: Settings, key: string): string[] | null {
+		const p = roleProfile(s, key);
+		const info = p ? $capsQuery.data?.[p.id] : null;
+		return info ? info.capabilities : null;
+	}
+
+	/** "gpt-oss:20b" is installed when a profile's model contains "gpt-oss". */
+	function installed(s: Settings, model: string): boolean {
+		const family = model.split(':')[0].replace(/[\d.]+$/, '');
+		return workingProfiles(s).some((p) => (p.model ?? '').includes(family));
+	}
 
 	function assignmentValue(s: Settings, key: string): string {
 		if (draft.agent_llm_assignments !== undefined) {
@@ -928,6 +954,8 @@
 					<h1>{t('settings.agentModelsSection')}</h1>
 					<p class="lead">{t('settings.agentModelsLead')}</p>
 					{#each AGENT_ROLES as role (role.key)}
+						{@const caps = roleCaps(s, role.key)}
+						{@const missing = caps ? (ROLE_NEEDS[role.key] ?? []).filter((c) => !caps.includes(c)) : []}
 						<label class="field">
 							<span class="field-label">{t(role.labelKey)}</span>
 							<select
@@ -942,10 +970,22 @@
 							</select>
 							<p class="field-hint">{t(role.hintKey)}</p>
 							<div class="recommend">
+								<span class="rec-label">Selected</span>
+								<span class="rec-model-name">{roleProfile(s, role.key)?.model ?? '—'}</span>
+								{#if caps}
+									{#each caps as c (c)}<span class="cap">{c}</span>{/each}
+									{#each missing as c (c)}<span class="cap cap-missing">missing: {c}</span>{/each}
+								{:else}
+									<span class="rec-why">capabilities unknown</span>
+								{/if}
+							</div>
+							<div class="recommend">
 								<span class="rec-label">Recommended</span>
 								{#each ROLE_RECOMMEND[role.key] ?? [] as r (r.model)}
 									<span class="rec-chip rec-{r.tag}" title={r.why}>
 										{#if r.tag === 'avoid'}avoid:{/if}<span class="rec-model">{r.model}</span>
+										{#each r.caps as c (c)}<span class="cap">{c}</span>{/each}
+										{#if installed(s, r.model)}<span class="rec-installed">installed</span>{/if}
 										<span class="rec-why">{r.why}</span>
 									</span>
 								{/each}
@@ -1243,6 +1283,29 @@
 	}
 	.rec-avoid .rec-model {
 		text-decoration: line-through;
+	}
+	.rec-model-name {
+		color: var(--text-primary);
+		font-family: ui-monospace, monospace;
+		font-size: 12px;
+	}
+	/* Capability badges in the style of ollama.com */
+	.cap {
+		padding: 1px 8px;
+		border-radius: 6px;
+		background: color-mix(in srgb, #6366f1 18%, transparent);
+		color: #a5b4fc;
+		font-size: 11.5px;
+		font-weight: 500;
+		text-decoration: none;
+	}
+	.cap-missing {
+		background: color-mix(in srgb, #ef4444 18%, transparent);
+		color: #fca5a5;
+	}
+	.rec-installed {
+		font-size: 11px;
+		color: #86efac;
 	}
 	.rec-why {
 		font-weight: 400;

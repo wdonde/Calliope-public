@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
+
+import httpx
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -92,6 +95,44 @@ def _saved_api_key(profile_id: str | None) -> str | None:
 @router.get("")
 async def get_settings() -> dict[str, Any]:
     return settings.to_public_dict()
+
+
+_CAPS_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+
+
+async def _ollama_caps(base_url: str, model: str) -> dict[str, Any] | None:
+    """Ollama's own capability list for a model (vision, tools, thinking, ...).
+
+    Asks ``<server>/api/show``; any other server type, or an unreachable one,
+    answers None. Cached per server+model for the life of the process.
+    """
+    root = (base_url or "").rstrip("/")
+    root = root[:-3] if root.endswith("/v1") else root
+    key = (root, model)
+    if key in _CAPS_CACHE:
+        return _CAPS_CACHE[key]
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(f"{root}/api/show", json={"model": model})
+            r.raise_for_status()
+            data = r.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    caps = [c for c in data.get("capabilities") or [] if c != "completion"]
+    info = {"capabilities": caps, "parameters": (data.get("details") or {}).get("parameter_size")}
+    _CAPS_CACHE[key] = info
+    return info
+
+
+@router.get("/llm/capabilities")
+async def llm_capabilities() -> dict[str, Any]:
+    """Capabilities per LLM profile id, as Ollama reports them (null = unknown)."""
+    settings.ensure_llm_profiles()
+    profiles = [p for p in settings.llm_profiles if p.get("model")]
+    results = await asyncio.gather(
+        *(_ollama_caps(str(p.get("base_url") or ""), str(p["model"])) for p in profiles)
+    )
+    return {p["id"]: r for p, r in zip(profiles, results)}
 
 
 @router.get("/llm/thinking-options")
