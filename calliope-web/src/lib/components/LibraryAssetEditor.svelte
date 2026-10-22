@@ -48,10 +48,18 @@
 			['appearance', 'role', 'age', 'personality', 'description', 'consistency_prompt'].map((k) => [k, String(d[k] ?? '')]),
 		);
 		pics = ((d.source_images as string[] | undefined) ?? []).map((path) => ({ src: assetUrl(path) ?? '', path }));
+		savedState = snapshot();
+		rendering = false;
 	});
 	$effect(() => {
 		if (!open) loadedFor = null;
 	});
+
+	// Render works on the saved asset, so it waits until the form is saved.
+	let savedState = $state('');
+	let rendering = $state(false);
+	const snapshot = () => JSON.stringify([name, category, tags, fields, pics.map((p) => p.path ?? p.src)]);
+	const dirty = $derived(savedState !== '' && snapshot() !== savedState);
 
 	let generating = $state(false);
 	const lookKey = $derived(isChar ? 'appearance' : 'description');
@@ -82,28 +90,44 @@
 		}
 	}
 
-	async function save(render: boolean) {
+	async function save() {
 		if (!asset || !name.trim()) return;
 		// An empty look is written automatically before saving.
 		if (!(fields[lookKey] ?? '').trim()) await generate();
 		busy = true;
 		try {
 			const keys = [...textFields.map((f) => f.key), 'consistency_prompt'];
-			await assetLibraryApi.update(asset.id, {
+			const saved = await assetLibraryApi.update(asset.id, {
 				name: name.trim(),
 				tags: tags.split(',').map((s) => s.trim()).filter(Boolean),
 				...(asset.kind === 'item' ? { category: category || null } : {}),
 				data: Object.fromEntries(keys.map((k) => [k, fields[k] ?? ''])),
 				source_images: (await picker?.resolvePaths()) ?? [],
 			});
-			if (render) await assetLibraryApi.libraryFromImages(asset.id);
-			toast.success(render ? t('assets.edit.savedRendering') : t('assets.edit.saved'));
-			open = false;
+			// Take back what the server made of it (identity tags, prompt, stored picture paths).
+			tags = saved.tags.join(', ');
+			fields = { ...fields, consistency_prompt: String(saved.data.consistency_prompt ?? fields.consistency_prompt) };
+			pics = ((saved.data.source_images as string[] | undefined) ?? []).map((path) => ({ src: assetUrl(path) ?? '', path }));
+			savedState = snapshot();
+			toast.success(t('assets.edit.saved'));
 			onsaved();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : String(err));
 		} finally {
 			busy = false;
+		}
+	}
+
+	async function render() {
+		if (!asset || dirty) return;
+		rendering = true;
+		try {
+			await assetLibraryApi.libraryFromImages(asset.id);
+			toast.success(t('assets.edit.renderQueued'));
+			onsaved();
+		} catch (err) {
+			rendering = false;
+			toast.error(err instanceof Error ? err.message : String(err));
 		}
 	}
 </script>
@@ -172,10 +196,11 @@
 		</div>
 	{/if}
 	{#snippet footer()}
-		<Button variant="ghost" onclick={() => (open = false)}>{t('common.cancel')}</Button>
-		<Button variant="secondary" loading={busy} onclick={() => save(false)}>{t('assets.edit.save')}</Button>
-		<Button variant="primary" loading={busy} onclick={() => save(true)}>
-			{pics.length ? t('assets.edit.saveRenderPictures') : t('assets.edit.saveRenderPrompt')}
+		{#if rendering}<span class="muted small status">{t('assets.edit.renderingNote')}</span>{/if}
+		<Button variant="ghost" onclick={() => (open = false)}>{t('common.close')}</Button>
+		<Button variant="secondary" disabled={!dirty} loading={busy} onclick={save}>{t('assets.edit.save')}</Button>
+		<Button variant="primary" disabled={dirty || busy} title={dirty ? t('assets.edit.saveFirst') : ''} onclick={render}>
+			{pics.length ? t('assets.edit.renderPictures') : t('assets.edit.renderPrompt')}
 		</Button>
 	{/snippet}
 </Modal>
@@ -228,6 +253,9 @@
 	}
 	.gen:disabled {
 		opacity: 0.5;
+	}
+	.status {
+		margin-right: auto;
 	}
 	.mono {
 		font-family: var(--font-mono, monospace);
