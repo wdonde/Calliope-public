@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import logging
 from typing import Any
 
@@ -8,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from calliope.agent.idea_guard import LongSourceText, refuse_long_idea
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
+    source_outline_block,
     STORY_GENERATION_SYSTEM,
     build_story_messages,
     character_sheet_prompt,
@@ -48,6 +51,14 @@ def _touch_project(conn, project_id: int) -> None:
         "UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
         (project_id,),
     )
+
+
+def _source_summaries(project: dict[str, Any]) -> list[str]:
+    try:
+        data = json.loads(project.get("source_summaries") or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(x) for x in data if str(x).strip()] if isinstance(data, list) else []
 
 
 def _require_project(conn, project_id: int) -> dict[str, Any]:
@@ -100,10 +111,14 @@ async def _iter_story_chunks(
     retry.
     """
     system = STORY_GENERATION_SYSTEM
+    # A condensed novel brings its part-by-part outline; the generators see it
+    # appended to the idea, never the novel itself.
+    outline = source_outline_block(_source_summaries(project))
+    idea = project["idea"] + (f"\n\n{outline}" if outline else "")
     if required_beats <= STORY_CHUNK:
         messages = build_story_messages(
             title=project["title"],
-            idea=project["idea"],
+            idea=idea,
             genre=project["genre"],
             tone=project["tone"],
             target_duration=project["target_duration"],
@@ -127,7 +142,7 @@ async def _iter_story_chunks(
                     "role": "user",
                     "content": story_generation_user_prompt(
                         project["title"],
-                        project["idea"],
+                        idea,
                         project["genre"],
                         project["tone"],
                         project["target_duration"],
@@ -154,7 +169,7 @@ async def _iter_story_chunks(
     first_n = min(STORY_CHUNK, required_beats)
     brief_user = story_brief_chunk_prompt(
         project["title"],
-        project["idea"],
+        idea,
         project["genre"],
         project["tone"],
         project["target_duration"],
@@ -226,6 +241,7 @@ async def _iter_story_chunks(
             chunk_beats=want,
             previous_beats=written_tail,
             cast_summary=cast_summary,
+            source_outline=outline or None,
         )
         chunk = await _request_beats_chunk(system, user, want=want)
         if not chunk:
@@ -289,10 +305,12 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
             if title is None:
                 title = chunk.get("title")
                 logline = chunk.get("logline")
+                # With a stored novel, Story idea holds its condensed summary --
+                # keep it rather than shrinking it to the one-line logline.
                 conn.execute(
                     "UPDATE projects SET title = ?, idea = COALESCE(?, idea), "
                     "status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (title or project["title"], logline, project_id),
+                    (title or project["title"], None if project.get("source_text") else logline, project_id),
                 )
             if replace and not replace_started:
                 # Clear the old board only once the first chunk is in hand —

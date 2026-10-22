@@ -241,6 +241,56 @@ Keep descriptions visual and concrete. Characters, locations and items should be
 FINAL CHECK before responding: beats.length == {chunk_beats}. If not, fix it."""
 
 
+_LANG_HINTS = {
+    "German": {"der", "die", "und", "das", "nicht", "ist", "ein", "eine", "mit", "sich", "auf", "den"},
+    "English": {"the", "and", "is", "of", "to", "with", "his", "her", "a", "in", "that", "on"},
+    "French": {"le", "la", "les", "et", "est", "une", "des", "dans", "pour", "avec", "il", "elle"},
+    "Spanish": {"el", "la", "los", "y", "es", "una", "del", "con", "para", "por", "que", "se"},
+}
+
+
+def guess_language(text: str) -> str | None:
+    """Most likely language of ``text`` by common words, or None when unclear."""
+    words = re.findall(r"[a-zA-Zäöüßéèàçñ]+", text.lower())
+    if len(words) < 20:
+        return None
+    scores = {lang: sum(w in hints for w in words) for lang, hints in _LANG_HINTS.items()}
+    best = max(scores, key=scores.get)
+    return best if scores[best] >= 5 else None
+
+
+def source_outline_block(summaries: list[str]) -> str:
+    """The novel part by part, for Draft Storyline (projects.source_summaries)."""
+    if not summaries:
+        return ""
+    lines = "\n".join(f"Part {i}. {s}" for i, s in enumerate(summaries, 1))
+    lang = guess_language(" ".join(summaries))
+    language_rule = (
+        f"LANGUAGE: write the title, logline, beat titles, beat descriptions, roles and personality in "
+        f"{lang}. Write appearance and location/item descriptions (used for image generation) in English. "
+        "Keep names exactly as in the outline."
+        if lang and lang != "English"
+        else "Keep names exactly as in the outline."
+    )
+    return (
+        "=== SOURCE OUTLINE: the full novel, part by part, in order ===\n"
+        f"{lines}\n"
+        "Use it: the Idea above is only a condensed summary. Spread the beats over ALL parts in order "
+        "(early beats = early parts, last beats = last part). Take characters, locations and items, and "
+        "their appearance, from this outline.\n"
+        f"{language_rule}"
+    )
+
+
+def source_part_range(outline: str, start: int, last: int, total: int) -> str:
+    """Which outline parts beats start..last correspond to, e.g. "4-6"."""
+    parts = outline.count("\nPart ") + (1 if outline.startswith("Part ") else 0)
+    parts = max(parts, 1)
+    lo = max(1, int((start - 1) / total * parts) + 1)
+    hi = max(lo, min(parts, int(last / total * parts + 0.999)))
+    return f"{lo}-{hi}" if hi > lo else str(lo)
+
+
 def story_beats_chunk_prompt(
     *,
     title: str,
@@ -252,6 +302,7 @@ def story_beats_chunk_prompt(
     chunk_beats: int,
     previous_beats: list[dict[str, Any]],
     cast_summary: str,
+    source_outline: str | None = None,
 ) -> str:
     """Continuation call: ONLY beats {chunk_start}..{chunk_start+chunk_beats-1},
     given the established brief and the beats already written."""
@@ -277,7 +328,10 @@ THIS CHUNK: exactly {chunk_beats} beats, order_index {chunk_start} through {last
 
 Established cast/locations:
 {cast_summary or '(none)'}
-
+{f"""
+{source_outline}
+Beats {chunk_start}-{last} cover roughly parts {source_part_range(source_outline, chunk_start, last, total_beats)} of the outline.
+""" if source_outline else ""}
 Beats already written (CONTINUE from here — same characters, escalating, no reset):
 {prior_lines or '(this is the first chunk)'}
 

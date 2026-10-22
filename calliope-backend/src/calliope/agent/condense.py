@@ -20,11 +20,15 @@ from typing import Any
 
 from calliope.agent.idea_guard import LONG_IDEA_CHARS
 from calliope.agent.llm import LLMClient, extract_json
+from calliope.agent.prompts import guess_language
 from calliope.agent.skills_store import ensure_builtin_skills, read_skill_file
 
 logger = logging.getLogger(__name__)
 
 CHUNK_CHARS = 6000
+# More parts than this get merged in groups before Draft Storyline sees them,
+# so a very long novel still fits the story model's prompt.
+MAX_OUTLINE_PARTS = 20
 # Leaves room under LONG_IDEA_CHARS so a user can still add a line by hand.
 TARGET_CHARS = 1600
 DURATIONS = ("30 seconds", "1 minute", "2 minutes", "5 minutes", "10 minutes")
@@ -55,6 +59,11 @@ DEFAULT_TEMPLATES = {
         "hint or open question. No generic closing sentences.\n"
         'Answer: {"title": "...", "genre": "...", "tone": "...", "target_duration": "...", "idea": "..."}\n\n'
         "SUMMARIES:\n$text"
+    ),
+    "merge-parts": (
+        "Merge these consecutive part summaries of a story into ONE summary of 5-7 sentences, written in "
+        "$lang. Keep every named character, location and turning point, in order.\n"
+        'Answer: {"summary": "..."}\n\nSUMMARIES:\n$text'
     ),
     "shorten": (
         "Rewrite the following text shorter: at most $max_chars characters, same order and same language, "
@@ -118,14 +127,18 @@ async def _ask(client: LLMClient, prompt: str) -> dict[str, Any]:
 async def condense_source(
     text: str, *, language: str | None = None, progress: Progress | None = None
 ) -> dict[str, str]:
-    """Return ``{title, genre, tone, target_duration, idea}`` for ``text``.
+    """Return ``{title, genre, tone, target_duration, idea, outline}`` for ``text``.
+
+    ``outline`` is the novel part by part (at most ``MAX_OUTLINE_PARTS``
+    entries), kept for Draft Storyline.
 
     ``idea`` is written in ``language``, by default the source text's own
     language, and is guaranteed to be at most ``LONG_IDEA_CHARS`` characters.
     """
     tpl = load_templates()
     common = {
-        "lang": language or "the same language as the source text",
+        # Named explicitly: "the source's language" alone gets English back from small models.
+        "lang": language or guess_language(text[:20000]) or "the same language as the source text",
         "durations": ", ".join(AUTO_DURATIONS),
         "min_chars": TARGET_CHARS - 600,
         "max_chars": TARGET_CHARS,
@@ -163,6 +176,18 @@ async def condense_source(
         if not idea:
             raise ValueError("The model returned no summary -- check the Story model in Settings.")
 
+        outline = summaries
+        if len(outline) > MAX_OUTLINE_PARTS:
+            size = -(-len(outline) // MAX_OUTLINE_PARTS)  # ceil
+            merged = []
+            for g in range(0, len(outline), size):
+                if progress:
+                    await progress(f"Condensing the outline ({g // size + 1}/{-(-len(outline) // size)})...")
+                group = "\n".join(f"- {s}" for s in outline[g:g + size])
+                out = await _ask(client, tpl["merge-parts"].safe_substitute(common, text=group))
+                merged.append(str(out.get("summary") or "").strip() or group)
+            outline = merged
+
         duration = str(fields.get("target_duration") or "").strip()
         return {
             "title": str(fields.get("title") or "").strip(),
@@ -170,6 +195,7 @@ async def condense_source(
             "tone": str(fields.get("tone") or "").strip(),
             "target_duration": duration if duration in AUTO_DURATIONS else "1 minute",
             "idea": idea,
+            "outline": outline,
         }
     finally:
         await client.close()

@@ -401,6 +401,9 @@ async def migrate_db(db_path: Path) -> None:
     # built-in generators get a pitch they can use without the source being lost.
     if "source_text" not in project_cols:
         conn.execute("ALTER TABLE projects ADD COLUMN source_text TEXT")
+    # JSON list: the novel part by part, so Draft Storyline sees the whole plot.
+    if "source_summaries" not in project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN source_summaries TEXT")
     # cli_audit: append-only. Rollback is a NEW row carrying undo_of_entry_id,
     # never a DELETE — the log must be able to explain itself.
     conn.execute(

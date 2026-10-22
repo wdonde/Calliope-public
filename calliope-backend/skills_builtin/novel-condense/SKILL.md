@@ -21,10 +21,12 @@ How it runs:
 3. `project-fields` gets all part summaries and returns title, genre, tone,
    length and the idea.
 4. `shorten` runs only when the idea comes back too long.
+5. `merge-parts` runs only for very long novels (more than 20 parts): it merges
+   neighbouring part summaries so Draft Storyline gets at most 20 of them.
 
 Rules for editing:
 
-- Keep the three `##` headings and one ```` ```text ```` block under each —
+- Keep the `##` headings and one ```` ```text ```` block under each —
   that block is the prompt. Everything else in this file is ignored.
 - Keep the JSON answer line of each prompt; Calliope parses those keys.
 - Placeholders (written `$name`) are filled in by Calliope:
@@ -61,6 +63,16 @@ Below are summaries of every part of a story, in order. Fill in the fields for a
 - target_duration: exactly one of $durations -- this becomes a SHORT video, even for a long novel.
 - idea: a summary of the WHOLE plot in $lang, $min_chars to $max_chars characters, strictly chronological: every part gets at least one sentence. Exciting events (conflict, danger, turning points, surprises) take priority over explanations. Name the main and important side characters with a short appearance, and the locations. Render the ending exactly, including its last twist, hint or open question. No generic closing sentences.
 Answer: {"title": "...", "genre": "...", "tone": "...", "target_duration": "...", "idea": "..."}
+
+SUMMARIES:
+$text
+```
+
+## merge-parts
+
+```text
+Merge these consecutive part summaries of a story into ONE summary of 5-7 sentences, written in $lang. Keep every named character, location and turning point, in order.
+Answer: {"summary": "..."}
 
 SUMMARIES:
 $text

@@ -52,3 +52,24 @@ def test_base_prompt_cleans_shot_label_quotes_and_style_lead():
 def test_base_prompt_keeps_apostrophes():
     prompt = base_prompt({"action": "The dragon’s wings and Tokio’s skyline glow"}, [], {"tone": "Anime"})
     assert "dragon’s wings and Tokio’s skyline" in prompt
+
+
+def test_source_outline_block_and_part_ranges():
+    from calliope.agent.prompts import source_outline_block, source_part_range
+
+    block = source_outline_block(["A happens.", "B happens.", "C happens.", "D happens."])
+    assert "Part 1. A happens." in block and "Part 4. D happens." in block
+    assert source_part_range(block, 1, 5, 10) == "1-2"
+    assert source_part_range(block, 6, 10, 10) == "3-4"
+    assert source_outline_block([]) == ""
+
+
+def test_outline_names_the_story_language():
+    from calliope.agent.prompts import guess_language, source_outline_block
+
+    de = ["Commander Gee steht auf der Brücke und sieht ein schwarzes Loch mit einem weißen Kern, "
+          "das nicht da sein dürfte. Der erste Offizier ist ratlos und die Crew wartet auf den Befehl."] * 2
+    assert guess_language(" ".join(de)) == "German"
+    assert "in German" in source_outline_block(de)
+    en = ["The captain lands on the planet and fights the monsters with his rifle in the dark of the night."] * 3
+    assert "LANGUAGE" not in source_outline_block(en)

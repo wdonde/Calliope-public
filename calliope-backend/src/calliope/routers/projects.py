@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -170,7 +171,11 @@ async def condense_idea(project_id: int, payload: CondenseIdeaRequest):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    update = {"source_text": source, "idea": fields["idea"]}
+    update = {
+        "source_text": source,
+        "idea": fields["idea"],
+        "source_summaries": json.dumps(fields["outline"], ensure_ascii=False),
+    }
     if payload.fill_fields:
         update.update({k: fields[k] for k in ("genre", "tone", "target_duration") if fields[k]})
     conn = get_db(settings.db_path)
@@ -184,6 +189,7 @@ async def condense_idea(project_id: int, payload: CondenseIdeaRequest):
         result = row_to_dict(conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone())
         result["idea_preview"] = idea_preview(result.get("idea"))
         result["source_chars"] = len(result.pop("source_text", None) or "") or None
+        result.pop("source_summaries", None)
         return result
     finally:
         conn.close()
