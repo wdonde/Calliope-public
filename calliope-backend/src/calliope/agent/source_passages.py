@@ -12,6 +12,7 @@ import math
 from typing import Any
 
 from calliope.agent.condense import split_text
+from calliope.agent.prompts import guess_language
 from calliope.config import settings
 
 # Upper bound per script call: two parts of ~6,000 characters.
@@ -66,11 +67,19 @@ def passage_for_scenes(
         text.append(f"[Part {i + 1}]\n{piece[:room]}")
         used += min(len(piece), room)
     label = f"part {lo + 1}" if lo == hi else f"parts {lo + 1}-{hi + 1}"
+    lang = guess_language(project.get("source_text") or "")
+    language_rule = (
+        f"LANGUAGE: write heading place names, action and dialogue in {lang}; never translate the novel's "
+        "dialogue. " if lang and lang != "English" else ""
+    )
     return (
         f"=== ORIGINAL NOVEL TEXT for these scenes ({label} of {len(parts)}) ===\n"
         + "\n\n".join(text)
         + "\n=== END OF ORIGINAL TEXT ===\n"
         "Use it: stage these scenes from this text. Take dialogue lines verbatim from it (in the novel's "
-        "language) wherever the beat has one; keep names, places and details as written. Do not add events "
-        "the beats do not cover."
+        "language) wherever the beat has one, and give each line to the character who says it in the novel; "
+        "keep names, places and details as written. Do not add events the beats do not cover. Every scene "
+        "shows a different moment: never repeat a scene or a dialogue line already used in the scenes "
+        "written before. "
+        + language_rule
     )

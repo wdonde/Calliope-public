@@ -1,6 +1,7 @@
 """Generate scene scripts via LLM and persist them."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from calliope.agent.idea_guard import refuse_long_idea
@@ -21,6 +22,58 @@ from calliope.events.bus import event_bus
 # force a full-script retry) — the "Regenerate Script hangs" bug. Chunks keep
 # each call modest and let us publish progress between them.
 SCRIPT_CHUNK = 4
+
+
+def _as_text(value: Any) -> str | None:
+    """Models sometimes return dialogue as a list of lines or of
+    {"character", "line"} objects; the scenes table stores plain text."""
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        lines = []
+        for item in value:
+            if isinstance(item, dict):
+                who = item.get("character") or item.get("speaker") or item.get("name") or ""
+                what = item.get("line") or item.get("text") or item.get("dialog") or ""
+                lines.append(f"{who}: {what}" if who else str(what))
+            else:
+                lines.append(str(item))
+        return "\n".join(l for l in lines if l.strip())
+    return str(value)
+
+
+def _line_key(line: str) -> str:
+    """A dialogue line without speaker, stage direction or punctuation."""
+    spoken = line.split(":", 1)[-1]
+    return re.sub(r"\W+", " ", spoken.lower()).strip()
+
+
+def drop_repeated_dialogue(scenes: list[dict[str, Any]], earlier: list[dict[str, Any]]) -> None:
+    """Remove dialogue lines that an earlier scene already speaks.
+
+    Small models reuse the same novel passage for neighbouring scenes even
+    when told not to; deduplicating here is what actually prevents it.
+    """
+    seen = {
+        _line_key(ln) for sc in earlier for ln in (sc.get("dialog") or "").splitlines() if len(_line_key(ln)) > 8
+    }
+    for scene in scenes:
+        kept = []
+        for line in (scene.get("dialog") or "").splitlines():
+            key = _line_key(line)
+            if len(key) > 8 and key in seen:
+                continue
+            seen.add(key)
+            kept.append(line)
+        if scene.get("dialog") is not None:
+            scene["dialog"] = "\n".join(kept)
+
+
+def _normalize_scene(scene: dict[str, Any]) -> dict[str, Any]:
+    for key in ("heading", "action", "dialog"):
+        if key in scene:
+            scene[key] = _as_text(scene[key])
+    return scene
 
 
 async def _request_chunk(
@@ -52,6 +105,9 @@ async def _request_chunk(
         prompt_tokens=estimate_prompt_tokens(messages),
     )
     if passage:
+        used = [ln for sc in previous_tail for ln in (sc.get("dialog") or "").splitlines() if ln.strip()]
+        if used:
+            passage += "\nDialogue lines already used (do not reuse):\n" + "\n".join(f"- {ln}" for ln in used)
         messages[1] = {**messages[1], "content": messages[1]["content"] + "\n\n" + passage}
     result = await generate_structured(messages, temperature=0.7)
     scenes = result.get("scenes") or []
@@ -70,7 +126,7 @@ async def _request_chunk(
         ]
         result = await generate_structured(retry_messages, temperature=0.5)
         scenes = result.get("scenes") or []
-    return scenes[:chunk_scenes]
+    return [_normalize_scene(sc) for sc in scenes[:chunk_scenes] if isinstance(sc, dict)]
 
 
 async def _iter_scene_chunks(
@@ -117,6 +173,7 @@ async def _iter_scene_chunks(
             chunk_scenes=chunk_scenes,
             previous_tail=collected[-2:],
         )
+        drop_repeated_dialogue(scenes, collected)
         # Models sometimes restart order_index per chunk; renumber by offset
         # so the persisted board is always 1..N in write order.
         for offset, scene in enumerate(scenes):

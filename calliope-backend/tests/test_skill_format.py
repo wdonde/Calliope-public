@@ -89,3 +89,24 @@ def test_script_passage_covers_the_matching_novel_parts(monkeypatch):
     assert "Teil 1 " in first and "Teil 8 " not in first
     assert "Teil 8 " in last and "Teil 1 " not in last
     assert source_passages.passage_for_scenes({"source_text": ""}, 1, 3, 12) is None
+
+
+def test_script_scene_dialogue_lists_become_text():
+    from calliope.agent.script_agent import _normalize_scene
+
+    scene = _normalize_scene({"dialog": [{"character": "Reed", "line": "Was ist passiert?"}, "Malone: Ruhe!"]})
+    assert scene["dialog"] == "Reed: Was ist passiert?\nMalone: Ruhe!"
+    assert _normalize_scene({"dialog": "Reed: Hallo"})["dialog"] == "Reed: Hallo"
+
+
+def test_repeated_dialogue_is_dropped_across_scenes():
+    from calliope.agent.script_agent import drop_repeated_dialogue
+
+    earlier = [{"dialog": "REED: Unsere Heimat ist die Erde!"}]
+    scenes = [
+        {"dialog": "MALONE (leise): Unsere Heimat ist die Erde!\nARZT: Das war haarscharf, Captain."},
+        {"dialog": "REED: Das war haarscharf, Captain.\nREED: Ja."},
+    ]
+    drop_repeated_dialogue(scenes, earlier)
+    assert scenes[0]["dialog"] == "ARZT: Das war haarscharf, Captain."
+    assert scenes[1]["dialog"] == "REED: Ja."
