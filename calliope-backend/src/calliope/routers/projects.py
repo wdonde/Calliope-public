@@ -5,10 +5,13 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from calliope.agent.condense import condense_source
+from calliope.agent.idea_guard import is_long
 from calliope.authoring.projects import idea_preview
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
-from calliope.models.schemas import Project, ProjectCreate, ProjectUpdate
+from calliope.events.bus import event_bus
+from calliope.models.schemas import CondenseIdeaRequest, Project, ProjectCreate, ProjectUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +106,7 @@ async def get_project(project_id: int):
         # preview comes along for free so the `Project` shape is the same
         # whichever endpoint produced it.
         project["idea_preview"] = idea_preview(project.get("idea"))
+        project["source_chars"] = len(project.pop("source_text", None) or "") or None
         project["stats"] = _project_stats(project_id, conn)
         return project
     finally:
@@ -132,6 +136,55 @@ async def update_project(project_id: int, payload: ProjectUpdate):
         conn.commit()
         row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         return row_to_dict(row)
+    finally:
+        conn.close()
+
+
+@router.post("/{project_id}/condense-idea", response_model=Project)
+async def condense_idea(project_id: int, payload: CondenseIdeaRequest):
+    """Store a novel as ``source_text`` and replace ``idea`` with a condensed pitch.
+
+    The source is, in order: the posted ``text``, the stored ``source_text``,
+    or ``idea`` itself when it is too long for the built-in generators.
+    """
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project = row_to_dict(row)
+    finally:
+        conn.close()
+
+    source = (payload.text or "").strip() or project.get("source_text") or ""
+    if not source and is_long(project.get("idea")):
+        source = project["idea"]
+    if not source.strip():
+        raise HTTPException(status_code=422, detail="No source text: paste the novel or store one first.")
+
+    async def progress(message: str) -> None:
+        await event_bus.publish("agent.thinking", {"project_id": project_id, "message": message})
+
+    try:
+        fields = await condense_source(source, progress=progress)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    update = {"source_text": source, "idea": fields["idea"]}
+    if payload.fill_fields:
+        update.update({k: fields[k] for k in ("genre", "tone", "target_duration") if fields[k]})
+    conn = get_db(settings.db_path)
+    try:
+        sets = ", ".join(f"{k} = :{k}" for k in update)
+        conn.execute(
+            f"UPDATE projects SET {sets}, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+            {**update, "id": project_id},
+        )
+        conn.commit()
+        result = row_to_dict(conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone())
+        result["idea_preview"] = idea_preview(result.get("idea"))
+        result["source_chars"] = len(result.pop("source_text", None) or "") or None
+        return result
     finally:
         conn.close()
 

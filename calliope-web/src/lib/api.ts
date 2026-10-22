@@ -25,6 +25,8 @@ export interface Project {
 	 * hides the buttons that would overwrite it.
 	 */
 	ingest_mode: string;
+	/** Length of the stored novel (`source_text`), when one was condensed into `idea`. */
+	source_chars?: number | null;
 	created_at: string;
 	updated_at: string;
 	stats?: ProjectStats;
@@ -251,6 +253,9 @@ export const projects = {
 		api<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 	delete: (id: number) => api<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
 	getStory: (id: number) => api<StoryData>(`/api/projects/${id}/story`),
+	/** Store a novel and replace Story idea with a model-written summary (< 2,000 chars). */
+	condenseIdea: (id: number, payload: { text?: string; fill_fields?: boolean } = {}) =>
+		api<Project>(`/api/projects/${id}/condense-idea`, { method: 'POST', body: JSON.stringify(payload) }),
 	updateBeat: (projectId: number, beatId: number, payload: Partial<Beat>) =>
 		api<Beat>(`/api/projects/${projectId}/beats/${beatId}`, {
 			method: 'PATCH',

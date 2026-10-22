@@ -49,3 +49,8 @@ reference/
 
 # --- Local agent workspace (ZCode) ---
 .zcode/
+
+# Local working folders (manga sources, renders, stories)
+Managa/
+exports/
+stories/

@@ -18,12 +18,30 @@
 		queryFn: projects.list,
 	});
 
+	// Set at submit: the novel to condense once the project exists.
+	let pendingNovel: string | null = null;
+
+	async function condenseNovel(projectId: number, text: string) {
+		toast.info(t('projects.condensing'));
+		try {
+			await projects.condenseIdea(projectId, { text, fill_fields: true });
+			await client.invalidateQueries({ queryKey: ['story'] });
+			await client.invalidateQueries({ queryKey: ['projects'] });
+			toast.success(t('projects.condensed'));
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : t('projects.condenseFailed'));
+		}
+	}
+
 	const createProjectMutation = createMutation({
 		mutationFn: projects.create,
 		onSuccess: (data: Project) => {
 			client.invalidateQueries({ queryKey: ['projects'] });
 			toast.success(t('projects.created', { title: data.title }));
+			const novel = pendingNovel;
+			pendingNovel = null;
 			goto(`/project/${data.id}`);
+			if (novel) void condenseNovel(data.id, novel);
 		},
 		onError: (err) => {
 			toast.error(err instanceof Error ? err.message : t('projects.createFailed'));
@@ -69,13 +87,16 @@
 	// that lies. The backend stays the authority -- this only warns, and a
 	// project created this way is still `builtin` and so still gets the 422.
 	const ideaTooLong = $derived(idea.length > 2000);
+	let condense = $state(true);
 
 	function onCreate(e: Event) {
 		e.preventDefault();
 		if (!title.trim()) return;
+		// A novel goes to /condense-idea instead of `idea`, which then holds the summary.
+		pendingNovel = ideaTooLong && condense ? idea.trim() : null;
 		$createProjectMutation.mutate({
 			title: title.trim(),
-			idea: idea.trim() || undefined,
+			idea: pendingNovel ? undefined : idea.trim() || undefined,
 			genre: genre || undefined,
 			tone: tone || undefined,
 			target_duration: duration || undefined,
@@ -86,6 +107,7 @@
 		showForm = true;
 		title = '';
 		idea = '';
+		condense = true;
 		genre = 'Adventure / Mystery';
 		tone = 'Cinematic, atmospheric';
 		duration = '2 minutes';
@@ -170,7 +192,13 @@
 					<span class="idea-count">{t('projects.ideaCount', { count: idea.length })}</span>
 				</p>
 				{#if ideaTooLong}
-					<p class="field-warn">{t('projects.ideaTooLong')}</p>
+					<label class="condense-toggle">
+						<input type="checkbox" bind:checked={condense} />
+						{t('projects.ideaCondense')}
+					</label>
+					{#if !condense}
+						<p class="field-warn">{t('projects.ideaTooLong')}</p>
+					{/if}
 				{/if}
 			</label>
 

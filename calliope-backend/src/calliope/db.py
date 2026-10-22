@@ -394,6 +394,10 @@ async def migrate_db(db_path: Path) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_projects_ingest_mode ON projects(ingest_mode)"
     )
+    # Full novel kept beside a condensed `idea` (agent/condense.py), so the
+    # built-in generators get a pitch they can use without the source being lost.
+    if "source_text" not in project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN source_text TEXT")
     # cli_audit: append-only. Rollback is a NEW row carrying undo_of_entry_id,
     # never a DELETE — the log must be able to explain itself.
     conn.execute(

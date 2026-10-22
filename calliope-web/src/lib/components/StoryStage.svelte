@@ -117,6 +117,25 @@
 	// left there to fail -- and it is the one button that would delete a
 	// CLI-authored board outright, since it replaces beats and cast wholesale.
 	const externallyAuthored = $derived(story.project.ingest_mode === 'external');
+	// Over the backend's LONG_IDEA_CHARS (agent/idea_guard.py) the drafter refuses.
+	const ideaTooLong = $derived(ideaDraft.length > 2000);
+	const sourceChars = $derived(story.project.source_chars ?? 0);
+
+	const condenseMutation = createMutation({
+		mutationFn: () =>
+			projects.condenseIdea(projectId, {
+				// A novel pasted into the field replaces the stored one.
+				text: ideaTooLong ? ideaDraft : undefined,
+				fill_fields: true,
+			}),
+		onSuccess: () => {
+			client.invalidateQueries({ queryKey: ['story'] });
+			toast.success(t('projects.condensed'));
+		},
+		onError: (err) => {
+			toast.error(err instanceof Error ? err.message : t('projects.condenseFailed'));
+		},
+	});
 	const draftPromptPreview = $derived(
 		buildStoryDraftPromptPreview({
 			title: story.project.title,
@@ -391,6 +410,27 @@
 		placeholder={t('story.ideaPlaceholder')}
 		onblur={() => void persistSettings()}
 	></textarea>
+	{#if ideaTooLong && !externallyAuthored}
+		<p class="field-warn">{t('story.ideaTooLongHint')}</p>
+	{:else if sourceChars}
+		<p class="field-hint">{t('story.sourceStored', { n: sourceChars.toLocaleString() })}</p>
+	{/if}
+	{#if (ideaTooLong || sourceChars) && !externallyAuthored}
+		<div class="condense-row">
+			<Button
+				variant={ideaTooLong ? 'primary' : 'secondary'}
+				disabled={!configured || $condenseMutation.isPending}
+				onclick={() => $condenseMutation.mutate()}
+			>
+				{#if $condenseMutation.isPending}
+					<Spinner size="sm" /> {t('story.condensing')}
+				{:else}
+					<Icon name="sparkle" size={15} />
+					{ideaTooLong ? t('story.condense') : t('story.recondense')}
+				{/if}
+			</Button>
+		</div>
+	{/if}
 </Card>
 
 <Card>
@@ -738,6 +778,10 @@
 />
 
 <style>
+	.condense-row {
+		margin-top: 10px;
+	}
+
 	.stage-header {
 		display: flex;
 		justify-content: space-between;

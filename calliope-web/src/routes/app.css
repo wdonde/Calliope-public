@@ -122,6 +122,17 @@ code,
 	color: var(--warning);
 }
 
+/* Offered instead of the warning: keep the novel, condense it into the idea. */
+.condense-toggle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+	font-size: 13px;
+	color: var(--text-secondary);
+	cursor: pointer;
+}
+
 /* Dark theme scrollbars (Firefox + Chromium) */
 * {
 	scrollbar-width: thin;

@@ -34,6 +34,18 @@ class ProjectUpdate(BaseModel):
     status: str | None = None
 
 
+class CondenseIdeaRequest(BaseModel):
+    """Body of ``POST /api/projects/{id}/condense-idea``.
+
+    ``text`` replaces the stored novel; omitted, the stored ``source_text`` (or a
+    long ``idea``) is condensed again. ``fill_fields`` lets the model also pick
+    genre, tone and target duration.
+    """
+
+    text: str | None = None
+    fill_fields: bool = True
+
+
 class ProjectStats(BaseModel):
     scene_count: int
     character_count: int
@@ -49,6 +61,8 @@ class Project(BaseModel):
     # of projects must not ship every novel to the browser on each page load.
     idea: str | None = None
     idea_preview: str | None = None
+    # Length of the stored novel (`projects.source_text`), never the text itself.
+    source_chars: int | None = None
     genre: str | None
     tone: str | None
     target_duration: str | None
