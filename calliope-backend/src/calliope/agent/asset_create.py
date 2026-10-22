@@ -323,29 +323,42 @@ def _colors(entity: dict[str, Any]) -> list[str]:
     return [f"{label.lower()} {known[label]}" for label in COLOR_LINES if known.get(label)]
 
 
-def reference_prompt(kind: str, entity: dict[str, Any], n_refs: int, all_gray: bool) -> str:
+def reference_prompt(kind: str, entity: dict[str, Any], n_refs: int, all_gray: bool, *, legacy: bool = False) -> str:
     """Short prompt when the asset's own pictures go in as references: the
     pictures lead (face, body, clothes, style); only colors come from the
-    text, so nothing in it can contradict the pictures."""
-    pics = "the reference picture" if n_refs == 1 else "the reference pictures"
-    roles = ("" if n_refs < 2 else
-             " The first picture shows the face and the colors, the second the full body.")
-    gray = (" The reference pictures are black-and-white line art: keep their shapes and render in full color."
-            if all_gray else "")
+    text, so nothing in it can contradict the pictures. The pictures are named
+    'image 1' / 'image 2' in the order they go in, as in the FLUX.2 Klein
+    multi-reference template. ``legacy`` gives the earlier wording, so prompts
+    Calliope made before still count as automatic."""
+    if legacy:
+        pics = "the reference picture" if n_refs == 1 else "the reference pictures"
+        roles = ("" if n_refs < 2 else
+                 " The first picture shows the face and the colors, the second the full body.")
+        where = f"the person in {pics}.{roles}"
+        place, thing = f"the place in {pics}.", f"the object in {pics}."
+    else:
+        where = ("the person in image 1." if n_refs == 1 else
+                 "the person in image 1 (face and colors) and image 2 (full body).")
+        place = "the place in image 1." if n_refs == 1 else "the place in image 1 and image 2."
+        thing = "the object in image 1." if n_refs == 1 else "the object in image 1 and image 2."
+    refs = "the reference pictures" if legacy else ("image 1" if n_refs == 1 else "image 1 and image 2")
+    gray = (f" {'The reference pictures are' if legacy else refs[0].upper() + refs[1:] + (' is' if n_refs == 1 else ' are')} "
+            f"black-and-white line art: keep {'its' if n_refs == 1 and not legacy else 'their'} shapes and render "
+            "in full color." if all_gray else "")
     if kind == "character":
         colors = _colors(entity)
         return (
-            f"Character reference sheet of {entity.get('name') or 'the character'}, the person in {pics}.{roles}\n"
+            f"Character reference sheet of {entity.get('name') or 'the character'}, {where}\n"
             "Keep exactly: face, hairstyle, body shape and proportions, clothes, art style and line work.\n"
             + (f"Colors: {'; '.join(colors)}.\n" if colors else "")
             + "Layout: front full body, side full body, back full body and a head close-up, same person in every "
               "view, neutral standing pose, plain light background, no text, no other people." + gray
         )
     if kind == "location":
-        return (f"Reference image of {entity.get('name') or 'the place'}, the place in {pics}.\n"
+        return (f"Reference image of {entity.get('name') or 'the place'}, {place}\n"
                 "Keep exactly: layout, architecture, materials, light and art style.\n"
                 "Show it as a clear establishing view with room for characters, no people, no text." + gray)
-    return (f"Reference image of {entity.get('name') or 'the object'}, the object in {pics}.\n"
+    return (f"Reference image of {entity.get('name') or 'the object'}, {thing}\n"
             "Keep exactly: shape, colors, materials, details and art style.\n"
             "Single object, centered, plain light background, no people, no text." + gray)
 
@@ -375,7 +388,8 @@ def prompt_is_auto(kind: str, entity: dict[str, Any]) -> bool:
     made = {text_prompt(kind, entity).strip()}
     for n in (1, 2):
         for gray in (False, True):
-            made.add(reference_prompt(kind, entity, n, gray).strip())
+            for legacy in (False, True):
+                made.add(reference_prompt(kind, entity, n, gray, legacy=legacy).strip())
     return stored in made
 
 

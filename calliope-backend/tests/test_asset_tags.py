@@ -412,8 +412,8 @@ def test_color_picture_leads_and_style_is_kept(client, monkeypatch):
     pid = client.post("/api/projects", json={"title": "K"}).json()["id"]
     job = ac.enqueue_from_images(pid, "character", entity)
     prompt = job["payload"]["prompt"] if "payload" in job else json.loads(job["payload_json"])["prompt"]
-    assert prompt.startswith("Character reference sheet of Kaoru, the person in the reference pictures.")
-    assert "first picture shows the face and the colors" in prompt and "Keep exactly: face, hairstyle" in prompt
+    assert prompt.startswith("Character reference sheet of Kaoru, the person in image 1 (face and colors) and image 2")
+    assert "Keep exactly: face, hairstyle" in prompt
     assert "Colors: hair blue." in prompt and "cinematic" not in prompt and "neutral clothing" not in prompt
 
 
@@ -506,6 +506,12 @@ def test_image_prompt_follows_pictures_unless_written_by_hand(client):
     preview = client.get(f"/api/asset-library/{lib['id']}/render-preview").json()
     assert preview["prompt"] == prompt and len(preview["refs"]) == 1 and preview["auto"]
 
+    # A prompt Calliope made with the earlier wording still counts as automatic.
+    from calliope.agent.asset_create import prompt_is_auto, reference_prompt
+
+    entity = {"name": "Kaoru", **with_pic["data"]}
+    old = reference_prompt("character", entity, 1, False, legacy=True)
+    assert "the reference picture." in old and prompt_is_auto("character", {**entity, "consistency_prompt": old})
     own = client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"consistency_prompt": "MY PROMPT"}}).json()
     assert own["data"]["consistency_prompt"] == "MY PROMPT"
     same = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": None}).json()
