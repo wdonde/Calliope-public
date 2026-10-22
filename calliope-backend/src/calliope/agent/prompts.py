@@ -320,6 +320,18 @@ def story_language_rule(text: str | None) -> str:
     )
 
 
+def appearance_line(text: str | None) -> str:
+    """A character's appearance on one line for list prompts: a multi-line sheet
+    (agent/asset_create.py) loses its section headings and name line."""
+    parts = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.isupper() or line.lower().startswith("name:"):
+            continue
+        parts.append(line)
+    return "; ".join(parts)
+
+
 def script_language_rule(text: str | None) -> str:
     """Script variant: characters speak the story's language, action stays English.
 
@@ -458,7 +470,7 @@ def build_script_messages(
     # per-scene scale to write to so content volume matches the runtime.
     per_scene_secs = max(3, round(secs / scene_n))
     char_lines = "\n".join(
-        f"- id={c['id']} {c['name']} ({c.get('role') or ''}): {c.get('appearance') or ''}"
+        f"- id={c['id']} {c['name']} ({c.get('role') or ''}): {appearance_line(c.get('appearance'))}"
         for c in characters
     )
     loc_lines = "\n".join(
@@ -573,7 +585,7 @@ def build_script_chunk_messages(
     # Issue #64: per-scene budget so chunk content volume matches the runtime.
     per_scene_secs = max(3, round(secs / scene_count))
     char_lines = "\n".join(
-        f"- id={c['id']} {c['name']} ({c.get('role') or ''}): {c.get('appearance') or ''}"
+        f"- id={c['id']} {c['name']} ({c.get('role') or ''}): {appearance_line(c.get('appearance'))}"
         for c in characters
     )
     loc_lines = "\n".join(

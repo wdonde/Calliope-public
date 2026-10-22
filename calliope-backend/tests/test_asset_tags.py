@@ -181,3 +181,33 @@ def test_library_asset_edit_shows_projects_and_renders_from_prompt(client):
     job_id = client.post(f"/api/asset-library/{lib['id']}/from-images").json()["job_id"]
     job = client.get(f"/api/jobs/{job_id}").json()
     assert (job.get("payload") or json.loads(job["payload_json"]))["input_values"]["10"] == "SHEET of Reed"
+
+
+def test_missing_look_is_generated_as_a_character_sheet(client, monkeypatch):
+    import calliope.agent.asset_create as ac
+
+    async def fake_llm(messages, temperature=0.4, role=None):
+        return {"look": {"Age": "52", "Gender": "male", "Species": "human", "Hair": "grey buzz cut",
+                         "Distinctive features": "scar over left eye", "Headwear": "none",
+                         "Outerwear": "olive field jacket", "Color palette": "olive, grey, black"},
+                "tags": ["faction:Union"]}
+
+    monkeypatch.setattr(ac, "generate_structured", fake_llm)
+    pid = client.post("/api/projects", json={"title": "T"}).json()["id"]
+    c = client.post(f"/api/projects/{pid}/characters", json={"name": "Reed"}).json()
+    out = client.post(f"/api/projects/{pid}/character/{c['id']}/describe").json()
+    text = out["appearance"]
+    assert text.startswith("CHARACTER INFORMATION\nName: Reed\nAge: 52") and "Species" not in text
+    assert "\n\nOUTFIT\nHeadwear: none\nOuterwear: olive field jacket" in text and out["tags"] == ["faction:Union"]
+
+    from calliope.agent.prompts import appearance_line
+
+    line = appearance_line(text)
+    assert line.startswith("Age: 52; Gender: male") and "OUTFIT" not in line and "Name:" not in line
+
+
+def test_suggested_tags_do_not_add_a_second_value_for_a_key():
+    from calliope.agent.asset_tags import merge_tags
+
+    assert merge_tags(["faction:Military", "alias:Eddy"], ["faction:Human Military", "alias:Reed", "role:hero"]) == [
+        "faction:Military", "alias:Eddy", "alias:Reed", "role:hero"]

@@ -31,7 +31,7 @@
 	const textFields = $derived(
 		isChar
 			? [
-					{ key: 'appearance', label: t('assets.appearance'), rows: 4 },
+					{ key: 'appearance', label: t('assets.appearance'), rows: 12 },
 					{ key: 'role', label: t('assets.edit.role'), rows: 1 },
 					{ key: 'age', label: t('assets.edit.age'), rows: 1 },
 					{ key: 'personality', label: t('assets.personality'), rows: 2 },
@@ -57,8 +57,38 @@
 		if (!open) loadedFor = null;
 	});
 
+	let generating = $state(false);
+	const lookKey = $derived(isChar ? 'appearance' : 'description');
+
+	/** Draft the look from the pictures, name and current text (as notes); fills the form. */
+	async function generate() {
+		if (!asset) return;
+		generating = true;
+		try {
+			await picker?.resolvePaths().then((paths) =>
+				assetLibraryApi.update(asset!.id, { source_images: paths }),
+			);
+			const r = await assetLibraryApi.describeLibrary(asset.id, fields[lookKey] ?? '');
+			fields[lookKey] = r.text;
+			// Suggestions only add keys the asset does not have yet (several aliases are fine).
+			const current = tags.split(',').map((s) => s.trim()).filter(Boolean);
+			const keyOf = (tag: string) => (tag.includes(':') ? tag.split(':')[0].toLowerCase() : tag.toLowerCase());
+			const have = new Set(current.map(keyOf));
+			const lower = new Set(current.map((s) => s.toLowerCase()));
+			const added = r.tags.filter((tag) => !lower.has(tag.toLowerCase()) && (keyOf(tag) === 'alias' || !have.has(keyOf(tag))));
+			tags = [...current, ...added].join(', ');
+			if (asset.kind === 'item' && !category && r.category) category = r.category;
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		} finally {
+			generating = false;
+		}
+	}
+
 	async function save(render: boolean) {
 		if (!asset || !name.trim()) return;
+		// An empty look is written automatically before saving.
+		if (!(fields[lookKey] ?? '').trim()) await generate();
 		busy = true;
 		try {
 			const keys = [...textFields.map((f) => f.key), 'consistency_prompt'];
@@ -117,7 +147,14 @@
 				</label>
 				{#each textFields as f (f.key)}
 					<label>
-						<span class="field-label">{f.label}</span>
+						<span class="field-label">
+							{f.label}
+							{#if f.key === lookKey}
+								<button type="button" class="gen" disabled={generating} onclick={generate}>
+									{generating ? t('assets.edit.generating') : t('assets.edit.generate')}
+								</button>
+							{/if}
+						</span>
 						{#if f.rows > 1}
 							<textarea class="field-textarea" rows={f.rows} bind:value={fields[f.key]}></textarea>
 						{:else}
@@ -182,6 +219,18 @@
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
+	}
+	.gen {
+		margin-left: 8px;
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--accent);
+		cursor: pointer;
+		font-size: 12px;
+	}
+	.gen:disabled {
+		opacity: 0.5;
 	}
 	.mono {
 		font-family: var(--font-mono, monospace);

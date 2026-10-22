@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 from calliope.agent.llm import LLMClient
+from calliope.agent.prompts import appearance_line
 from calliope.agent.skills_store import ensure_builtin_skills, read_skill_file
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def base_prompt(scene: dict[str, Any], characters: list[dict[str, Any]], project
     action = _DOUBLE_SHOT.sub("", (scene.get("action") or "").strip())
     action = _QUOTED.sub("", action).strip().rstrip(".")
     looks = [
-        f"{c.get('name')}: {_STYLE_LEAD.sub('', (c.get('appearance') or '').strip()).rstrip('.')}"
+        f"{c.get('name')}: {_STYLE_LEAD.sub('', appearance_line(c.get('appearance'))).rstrip('.')}"
         for c in characters
         if (c.get("appearance") or "").strip()
     ]
@@ -82,7 +83,7 @@ async def rewrite_prompt(
     brief = "\n".join([
         f"Mode: {'image-to-video (a start image is given)' if has_start_image else 'text-to-video'}",
         f"Shot: {scene.get('action') or ''}",
-        "Characters: " + ("; ".join(f"{c.get('name')} = {c.get('appearance') or ''}" for c in characters) or "none"),
+        "Characters: " + ("; ".join(f"{c.get('name')} = {appearance_line(c.get('appearance'))}" for c in characters) or "none"),
         f"Dialogue spoken in this shot (show the speaking, never quote it): {scene.get('dialog') or 'none'}",
         f"Project tone: {project.get('tone') or ''}; genre: {project.get('genre') or ''}",
         f"Style suffix to use: {style_suffix(project.get('tone'), project.get('genre'))}",

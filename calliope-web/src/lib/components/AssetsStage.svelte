@@ -98,6 +98,19 @@
 		}
 	}
 
+	let describing = $state<string | null>(null);
+	async function describeAsset(kind: AssetKind, id: number) {
+		describing = `${kind}:${id}`;
+		try {
+			await assetLibraryApi.describeProject(projectId, kind, id);
+			await client.invalidateQueries({ queryKey: ['assets'] });
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		} finally {
+			describing = null;
+		}
+	}
+
 	async function fromImages(kind: AssetKind, id: number) {
 		try {
 			await assetLibraryApi.fromImages(projectId, kind, id);
@@ -994,6 +1007,10 @@
 								pictures={char.source_images?.length ?? 0}
 								onfromimages={() => fromImages('character', char.id)}
 							/>
+							{#if !char.appearance}
+								<Button size="sm" variant="ghost" loading={describing === 'character:' + char.id}
+									onclick={() => describeAsset('character', char.id)}>{t('assets.generateDescription')}</Button>
+							{/if}
 							{#if char.appearance}
 								<p class="facts" title={char.appearance}>
 									<span class="k">{t('assets.appearance')}</span> {char.appearance}
@@ -1186,6 +1203,10 @@
 								pictures={loc.source_images?.length ?? 0}
 								onfromimages={() => fromImages('location', loc.id)}
 							/>
+							{#if !loc.description}
+								<Button size="sm" variant="ghost" loading={describing === 'location:' + loc.id}
+									onclick={() => describeAsset('location', loc.id)}>{t('assets.generateDescription')}</Button>
+							{/if}
 							{#if loc.description}
 								<p class="facts" title={loc.description}>
 									<span class="k">{t('assets.description')}</span> {loc.description}
@@ -1373,6 +1394,10 @@
 								pictures={item.source_images?.length ?? 0}
 								onfromimages={() => fromImages('item', item.id)}
 							/>
+							{#if !item.description}
+								<Button size="sm" variant="ghost" loading={describing === 'item:' + item.id}
+									onclick={() => describeAsset('item', item.id)}>{t('assets.generateDescription')}</Button>
+							{/if}
 							{#if item.description}
 								<p class="facts" title={item.description}>
 									<span class="k">{t('assets.description')}</span> {item.description}

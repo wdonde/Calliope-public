@@ -53,6 +53,15 @@ def tags_json(tags: Any, name: str | None = None) -> str:
     return json.dumps(out, ensure_ascii=False)
 
 
+def merge_tags(current: list[str], suggested: list[str]) -> list[str]:
+    """Add suggestions only for keys the asset has no tag for yet (aliases may repeat)."""
+    def key(tag: str) -> str:
+        return tag.split(":", 1)[0].lower() if ":" in tag else tag.lower()
+
+    have = {key(t) for t in current}
+    return current + [t for t in normalize_tags(suggested) if key(t) == "alias" or key(t) not in have]
+
+
 def name_tags(name: str) -> list[str]:
     """Aliases readable from the name itself: a quoted nickname ('Ripper Eddy')."""
     return [f"alias:{m.strip()}" for m in re.findall(r"['\"„“‚‘]([^'\"„“‚‘]{2,40})['\"“”‘’]", name or "")]
@@ -137,8 +146,8 @@ Respond ONLY with JSON:
                 e = by_id.get(s.get("id")) if isinstance(s, dict) else None
                 if not e:
                     continue
-                tags = json.loads(tags_json((e.get("tags") or []) + name_tags(e["name"]) + list(s.get("tags") or []),
-                                            e["name"]))
+                tags = json.loads(tags_json(merge_tags((e.get("tags") or []) + name_tags(e["name"]),
+                                                       list(s.get("tags") or [])), e["name"]))
                 category = e.get("category") if table == "items" else None
                 if table == "items" and not category:
                     category = normalize_category(s.get("category"))

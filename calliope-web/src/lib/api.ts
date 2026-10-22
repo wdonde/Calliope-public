@@ -246,6 +246,13 @@ export const assetLibraryApi = {
 			method: 'POST',
 			body: JSON.stringify(payload),
 		}),
+	describeLibrary: (assetId: number, notes = '') =>
+		api<{ field: string; text: string; tags: string[]; category: string | null }>(
+			`/api/asset-library/${assetId}/describe`,
+			{ method: 'POST', body: JSON.stringify({ notes }) },
+		),
+	describeProject: (projectId: number, kind: AssetKind, entityId: number) =>
+		api<Record<string, unknown>>(`/api/projects/${projectId}/${kind}/${entityId}/describe`, { method: 'POST' }),
 	libraryFromImages: (assetId: number) =>
 		api<{ job_id: number }>(`/api/asset-library/${assetId}/from-images`, { method: 'POST' }),
 	fromImages: (projectId: number, kind: AssetKind, entityId: number) =>

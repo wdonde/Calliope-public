@@ -17,8 +17,15 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from calliope.agent.asset_create import create_asset, create_library_asset, enqueue_from_images
-from calliope.agent.asset_tags import normalize_category, suggest_tags, tags_json
+from calliope.agent.asset_create import (
+    LOOK_HINT,
+    create_asset,
+    create_library_asset,
+    describe,
+    enqueue_from_images,
+    project_context,
+)
+from calliope.agent.asset_tags import merge_tags, normalize_category, suggest_tags, tags_json
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
 
@@ -52,6 +59,10 @@ class LibraryUpdate(BaseModel):
 
 class AddToProject(BaseModel):
     project_id: int
+
+
+class DescribeRequest(BaseModel):
+    notes: str = ""  # extra hints, any language
 
 
 class NewAsset(BaseModel):
@@ -318,3 +329,51 @@ def _check_upload_paths(paths: list[str]) -> None:
             Path(p).resolve().relative_to(assets_root)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=f"Image outside the assets folder: {p}") from exc
+
+
+@router.post("/asset-library/{asset_id}/describe")
+async def describe_library_asset(asset_id: int, payload: DescribeRequest | None = None) -> dict[str, Any]:
+    """Draft the look from the asset's pictures and notes (not saved -- the Edit dialog fills it in)."""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM library_assets WHERE id = ?", (asset_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Library asset not found")
+    a = _out(row)
+    field = LOOK_HINT[a["kind"]][0]
+    known = a["data"].get(field) or ""
+    look = await describe(a["kind"], a["name"], (payload.notes if payload else "") or "",
+                          [p for p in a["data"].get("source_images") or [] if Path(p).is_file()],
+                          context=f"{project_context(a.get('source_project_id'))}\nCurrent look: {known}".strip())
+    return {"field": field, "text": look[field], "tags": look["tags"], "category": look["category"]}
+
+
+@router.post("/projects/{project_id}/{kind}/{entity_id}/describe")
+async def describe_project_asset(project_id: int, kind: Kind, entity_id: int) -> dict[str, Any]:
+    """Write the missing look of a project asset from its name, notes and own pictures, and save it."""
+    table = TABLES[kind]
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ? AND project_id = ?", (entity_id, project_id)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    e = row_to_dict(row)
+    field = LOOK_HINT[kind][0]
+    known = " ".join(f"{k}: {e[k]}" for k in ("role", "age", "personality", field) if e.get(k))
+    look = await describe(kind, e["name"], "", [p for p in e.get("source_images") or [] if Path(p).is_file()],
+                          context=f"{project_context(project_id)}\n{known}".strip())
+    sets = {field: look[field], "tags": tags_json(merge_tags(e.get("tags") or [], list(look["tags"])), e["name"])}
+    if kind == "item" and not e.get("category") and look["category"]:
+        sets["category"] = look["category"]
+    conn = get_db(settings.db_path)
+    try:
+        conn.execute(f"UPDATE {table} SET {', '.join(f'{k} = :{k}' for k in sets)} WHERE id = :id",
+                     {**sets, "id": entity_id})
+        conn.commit()
+        return row_to_dict(conn.execute(f"SELECT * FROM {table} WHERE id = ?", (entity_id,)).fetchone())
+    finally:
+        conn.close()

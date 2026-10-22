@@ -11,6 +11,12 @@ import re
 from typing import Any
 
 
+def appearance_line(text: str | None) -> str:
+    from calliope.agent.prompts import appearance_line as line
+
+    return line(text)
+
+
 def script_language_rule(text: str | None) -> str:
     # Late import: prompts imports this module.
     from calliope.agent.prompts import script_language_rule as rule
@@ -111,7 +117,7 @@ def comic_script_chunk_messages(
     last = chunk_start + chunk_scenes - 1
     language_sample = " ".join([idea or ""] + [f"{b.get('title')} {b.get('description')}" for b in beats])
     char_lines = "\n".join(
-        f"- id={c['id']} {c['name']} ({c.get('role') or ''}): {c.get('appearance') or ''}" for c in characters
+        f"- id={c['id']} {c['name']} ({c.get('role') or ''}): {appearance_line(c.get('appearance'))}" for c in characters
     )
     loc_lines = "\n".join(f"- id={l['id']} {l['name']}: {l.get('description') or ''}" for l in locations)
     beat_lines = "\n".join(f"- {b.get('order_index')}. {b.get('title')}: {b.get('description')}" for b in beats)
@@ -188,7 +194,7 @@ def comic_coverage_messages(
     """Break one scene into comic panels (the clips of a comic project)."""
     kind = "manga" if fmt == "manga" else "webtoon"
     char_lines = "\n".join(
-        f"- id={c['id']} {c['name']}: {(c.get('appearance') or '').strip()}" for c in characters
+        f"- id={c['id']} {c['name']}: {appearance_line(c.get('appearance'))}" for c in characters
     )
     context = ""
     if previous_heading or next_heading:

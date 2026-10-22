@@ -38,13 +38,63 @@ from calliope.queue.manager import queue_manager
 TABLES = {"character": "characters", "location": "locations", "item": "items"}
 MAX_IMAGES = 6
 LOOK_HINT = {
-    "character": ("appearance", "fixed look for image generation: age, build, face, hair color and style, "
-                  "one distinctive mark, and ONE default outfit incl. headwear (40-70 words)"),
+    "character": ("appearance", "the character sheet below"),
     "location": ("description", "visual description for image generation: place, architecture or landscape, "
                  "materials, light, mood (40-70 words)"),
     "item": ("description", "visual description for image generation: shape, size, material, colors, "
              "distinctive details (30-50 words)"),
 }
+TAG_KEYS = {
+    "character": "alias (other names or nicknames), faction (group or side in the story), role (protagonist, villain, ...)",
+    "location": "type (interior, exterior, landscape, vehicle interior), region (world or area), alias",
+    "item": "alias, owner (the character it belongs to), material or era if it matters",
+}
+# The fixed look of a character, section by section: what every sheet and panel
+# must keep the same. Style is left out on purpose -- it comes from the project,
+# so the same character can be drawn as manga, webtoon or 3D.
+CHARACTER_SHEET = (
+    ("CHARACTER INFORMATION", (
+        ("Age", "age in years or a range"),
+        ("Gender", "gender"),
+        ("Species", "only if not human, else leave empty"),
+        ("Height", "height in cm"),
+        ("Build", "slim / athletic / muscular / stocky / ..."),
+        ("Skin", "skin tone and texture"),
+        ("Face", "face shape, jawline, nose, lips"),
+        ("Eyes", "eye color and shape"),
+        ("Hair", "color, length, hairstyle"),
+        ("Distinctive features", "freckles, scars, tattoos, or none"),
+    )),
+    ("OUTFIT", (
+        ("Headwear", "hat, helmet, hood, or none"),
+        ("Outerwear", "jacket, vest, armor, coat, or none"),
+        ("Top", "garment, fit, color, material"),
+        ("Bottom", "garment, fit, color, material"),
+        ("Footwear", "type, color, material"),
+        ("Accessories", "specific accessories or none"),
+        ("Signature items", "what the character always carries (weapon, bag, glasses), or none"),
+        ("Color palette", "2-3 key colors of the whole look"),
+    )),
+)
+
+
+def sheet_text(name: str, look: dict[str, Any]) -> str:
+    """The character sheet as text (stored in characters.appearance)."""
+    lines: list[str] = []
+    for section, fields in CHARACTER_SHEET:
+        if lines:
+            lines.append("")
+        lines.append(section)
+        if section == "CHARACTER INFORMATION":
+            lines.append(f"Name: {name}")
+        for label, _ in fields:
+            raw = look.get(label)
+            value = (", ".join(str(v) for v in raw) if isinstance(raw, list) else str(raw or "")).strip()
+            if label == "Height" and value.isdigit():
+                value += " cm"
+            if value and not (label == "Species" and value.lower() in ("human", "none", "-")):
+                lines.append(f"{label}: {value}")
+    return "\n".join(lines)
 
 
 def _data_url(path: str, size: int = 768) -> str | None:
@@ -86,22 +136,35 @@ def collage(paths: list[str], out: Path, size: int = 1536) -> str:
     return str(out)
 
 
-async def describe(kind: str, name: str, prompt: str, images: list[str]) -> dict[str, Any]:
-    """The asset's look (English), tags and -- for items -- category, from text and pictures."""
+async def describe(kind: str, name: str, prompt: str, images: list[str], *, context: str = "") -> dict[str, Any]:
+    """The asset's look (English), tags and -- for items -- category, from text and pictures.
+    Characters get the filled-in CHARACTER_SHEET; missing notes are fine, the
+    model then invents a fitting, specific look from the name and ``context``
+    (the story it belongs to, the look written so far)."""
     field, hint = LOOK_HINT[kind]
     category = f',\n  "category": "one of {", ".join(ITEM_CATEGORIES)} or your own word"' if kind == "item" else ""
+    if kind == "character":
+        sheet = "\n".join(f'    "{label}": "{h}",' for _, fields in CHARACTER_SHEET for label, h in fields)
+        shape = f'  "look": {{\n{sheet.rstrip(",")}\n  }}'
+        ask = ('- "look": fill every field of the character sheet, concrete and specific enough that the '
+               "character is recognisable in every picture; invent fitting details the notes and pictures "
+               "leave open.")
+    else:
+        shape = f'  "{field}": "..."'
+        ask = f'- "{field}": {hint}. Concrete and visual, no story events.'
     text = f"""Create a {kind} asset for a story.
 Name: {name}
+{f"Context (the story and what is known so far -- stay true to it): {context[:2500]}" if context.strip() else ""}
 User notes (any language): {prompt or '(none)'}
 {f'The {len(images)} attached picture(s) show this {kind}; describe what they show, and let the notes override them.' if images else ''}
 
 Write in English:
-- "{field}": {hint}. Concrete and visual, no story events.
-- "tags": 1-5 short "key:value" tags with English keys (alias for other names or nicknames, faction, type, owner).
+{ask}
+- "tags": 1-5 short "key:value" tags with English keys: {TAG_KEYS[kind]}.
 
 Respond ONLY with JSON:
 {{
-  "{field}": "...",
+{shape},
   "tags": ["alias:..."]{category}
 }}"""
     parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
@@ -117,11 +180,32 @@ Respond ONLY with JSON:
         result = await generate_structured(messages, temperature=0.4, role="assets" if images else "writer")
     except Exception:  # noqa: BLE001 -- the notes still make a usable asset
         result = {}
+    if kind == "character":
+        look = result.get("look") if isinstance(result.get("look"), dict) else {}
+        value = sheet_text(name, look) if look else (result.get(field) or prompt or name)
+    else:
+        value = result.get(field) or prompt or name
     return {
-        field: (result.get(field) or prompt or name).strip(),
+        field: str(value).strip(),
         "tags": result.get("tags") or [],
         "category": normalize_category(result.get("category")) if kind == "item" else None,
     }
+
+
+def project_context(project_id: int | None) -> str:
+    """The story an asset belongs to: title, genre, tone and idea of its project."""
+    if not project_id:
+        return ""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT title, genre, tone, idea FROM projects WHERE id = ?", (project_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return ""
+    p = row_to_dict(row)
+    head = " / ".join(str(p[k]) for k in ("title", "genre", "tone") if p.get(k))
+    return f"{head}. {(p.get('idea') or '')[:1500]}".strip()
 
 
 def _pick_workflow(n_refs: int) -> int | None:
@@ -176,7 +260,7 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
 async def create_asset(project_id: int, *, kind: str, name: str, prompt: str = "", image_paths: list[str] | None = None,
                        generate: bool = True) -> dict[str, Any]:
     images = keep_images(project_id, kind, image_paths or [])
-    look = await describe(kind, name, prompt, images)
+    look = await describe(kind, name, prompt, images, context=project_context(project_id))
     tags = tags_json(name_tags(name) + list(look["tags"]), name)
     conn = get_db(settings.db_path)
     try:
