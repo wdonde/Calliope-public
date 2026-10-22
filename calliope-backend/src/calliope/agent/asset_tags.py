@@ -146,6 +146,8 @@ Respond ONLY with JSON:
                 e = by_id.get(s.get("id")) if isinstance(s, dict) else None
                 if not e:
                     continue
+                if table == "characters" and e.get("appearance", "").lstrip().startswith("CHARACTER INFORMATION"):
+                    continue  # tags come from the character's sheet
                 tags = json.loads(tags_json(merge_tags((e.get("tags") or []) + name_tags(e["name"]),
                                                        list(s.get("tags") or [])), e["name"]))
                 category = e.get("category") if table == "items" else None

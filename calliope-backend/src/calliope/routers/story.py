@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from calliope.activity import tracked
 from calliope.agent.idea_guard import LONG_IDEA_CHARS, LongSourceText, refuse_long_idea
 from calliope.agent.asset_create import sheet_text
+from calliope.agent.character_identity import character_tags, complete_sheet
 from calliope.agent.asset_tags import name_tags, normalize_category, tags_json
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
@@ -349,8 +350,11 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                         # Draft Storyline returns a structured "look" (the character sheet);
                         # older answers or models may still give a prose "appearance".
                         look = entity.get("look")
-                        appearance = (sheet_text(entity.get("name", ""), look) if isinstance(look, dict) and look
-                                      else entity.get("appearance", "") or "")
+                        if isinstance(look, dict) and look:
+                            look = {**look, "Role": look.get("Role") or entity.get("role") or ""}
+                            appearance = complete_sheet(sheet_text(entity.get("name", ""), look), entity.get("name", ""))
+                        else:
+                            appearance = entity.get("appearance", "") or ""
                         row_seed = {
                             "name": entity.get("name", ""),
                             "role": entity.get("role", ""),
@@ -358,7 +362,9 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                             "appearance": appearance,
                             "personality": entity.get("personality", ""),
                         }
-                        tags = tags_json(name_tags(row_seed["name"]) + list(entity.get("tags") or []), row_seed["name"])
+                        derived = character_tags(appearance)
+                        tags = (json.dumps(derived, ensure_ascii=False) if derived is not None else
+                                tags_json(name_tags(row_seed["name"]) + list(entity.get("tags") or []), row_seed["name"]))
                         # Seed with the published sheet template so Assets shows a real prompt, not a hidden blob.
                         conn.execute(
                             """
@@ -650,7 +656,9 @@ async def create_character(project_id: int, payload: CharacterCreate) -> dict[st
                 payload.appearance,
                 payload.personality,
                 consistency,
-                tags_json(name_tags(payload.name) + (payload.tags or [])),
+                json.dumps(character_tags(payload.appearance))
+                if character_tags(payload.appearance) is not None
+                else tags_json(name_tags(payload.name) + (payload.tags or [])),
             ),
         )
         _touch_project(conn, project_id)
@@ -674,6 +682,11 @@ async def update_character(
         if not existing:
             raise HTTPException(status_code=404, detail="Character not found")
         data = _asset_fields({k: v for k, v in payload.model_dump().items() if v is not None})
+        # A character with a sheet takes its tags from it (plus its library link).
+        appearance = data.get("appearance", existing["appearance"])
+        derived = character_tags(appearance, json.loads(existing["tags"] or "[]"))
+        if derived is not None and ("appearance" in data or "tags" in data):
+            data["tags"] = json.dumps(derived, ensure_ascii=False)
         if data:
             fields = ", ".join(f"{k} = :{k}" for k in data)
             data["id"] = character_id

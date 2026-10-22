@@ -27,7 +27,17 @@ from calliope.agent.asset_create import (
     project_context,
 )
 from calliope.agent.asset_tags import merge_tags, normalize_category, suggest_tags, tags_json
-from calliope.agent.character_identity import IDENTITY, IDENTITY_TAGS, identity_tags, identity_text, match, outfit_text
+from calliope.agent.character_identity import (
+    IDENTITY,
+    IDENTITY_TAGS,
+    character_tags,
+    complete_sheet,
+    identity_tags,
+    identity_text,
+    is_sheet,
+    match,
+    outfit_text,
+)
 from calliope.agent.prompts import character_sheet_prompt
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
@@ -125,15 +135,6 @@ def _add_projects(assets: list[dict[str, Any]]) -> None:
         ]
 
 
-def _identity_tags_for(tags: list[str], identity: str, role: str | None = None) -> list[str]:
-    """Tags = alias/role/other user tags + identity tags freshly read from the sheet."""
-    keys = set(IDENTITY_TAGS.values())
-    kept = [t for t in tags if t.split(":", 1)[0].lower() not in keys and not t.lower().startswith("library:")]
-    if role and not any(t.lower().startswith("role:") for t in kept):
-        kept.append(f"role:{role.strip().lower()}")
-    return kept + identity_tags(identity)
-
-
 def _matches(asset: dict[str, Any], q: str) -> bool:
     text = " ".join([asset["name"], asset.get("category") or "", *asset["tags"],
                      *(str(v) for v in asset["data"].values() if isinstance(v, str))]).lower()
@@ -169,9 +170,11 @@ async def save_to_library(project_id: int, kind: Kind, entity_id: int) -> dict[s
         e = row_to_dict(row)
         tags = list(e.get("tags") or [])
         if kind == "character":
-            e["appearance"] = identity_text(e.get("appearance"))
+            # Older characters kept alias/role as tags: they move into the sheet.
+            aliases = [t.split(":", 1)[1] for t in tags if t.lower().startswith("alias:")]
+            e["appearance"] = complete_sheet(identity_text(e.get("appearance")), e["name"], e.get("role"), aliases)
             e["consistency_prompt"] = character_sheet_prompt({"name": e["name"], "appearance": e["appearance"]})
-            tags = _identity_tags_for(tags, e["appearance"], e.get("role"))
+            tags = character_tags(e["appearance"]) or tags
         cur = conn.execute(
             "INSERT INTO library_assets (kind, name, category, tags, source_project_id) VALUES (?, ?, ?, ?, ?)",
             (kind, e["name"], e.get("category"), tags_json(tags, e["name"]), project_id),
@@ -247,12 +250,20 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
             for key in ("role", "age", "personality"):
                 data.pop(key, None)
         if asset["kind"] == "character" and "appearance" in (fields.get("data") or {}):
-            data["appearance"] = identity_text(data["appearance"])
+            # Alias/role of older entries lived in tags; they move into the sheet.
+            data["appearance"] = complete_sheet(
+                identity_text(data["appearance"]), sets.get("name") or asset["name"],
+                role=next((t[5:] for t in asset["tags"] if t.lower().startswith("role:")), None),
+                aliases=[t[6:] for t in asset["tags"] if t.lower().startswith("alias:")])
             if not (data.get("consistency_prompt") or "").strip():
                 data["consistency_prompt"] = character_sheet_prompt({"name": sets.get("name") or asset["name"],
                                                                      "appearance": data["appearance"]})
-            base = json.loads(sets["tags"]) if "tags" in sets else asset["tags"]
-            sets["tags"] = tags_json(_identity_tags_for(base, data["appearance"]), sets.get("name") or asset["name"])
+            derived = character_tags(data["appearance"])
+            if derived is not None:
+                sets["tags"] = json.dumps(derived, ensure_ascii=False)
+        if asset["kind"] == "character" and "tags" in sets and is_sheet(data.get("appearance")):
+            # A character's tags come from its sheet; typed tags are not kept.
+            sets["tags"] = json.dumps(character_tags(data["appearance"]), ensure_ascii=False)
         if "source_images" in fields:
             _check_upload_paths(fields["source_images"] or [])
             keep = _library_dir(asset_id) / "source"
@@ -391,7 +402,12 @@ async def describe_library_asset(asset_id: int, payload: DescribeRequest | None 
                           context=f"{project_context(a.get('source_project_id'))}\n"
                                   f"{'Earlier draft: ' + known if known else ''}".strip(),
                           identity_only=a["kind"] == "character")
-    tags = list(look["tags"]) + (identity_tags(look[field]) if a["kind"] == "character" else [])
+    if a["kind"] == "character":
+        look[field] = complete_sheet(look[field], a["name"],
+                                     aliases=[t[6:] for t in a["tags"] if t.lower().startswith("alias:")],
+                                     role=next((t[5:] for t in a["tags"] if t.lower().startswith("role:")), None))
+    tags = character_tags(look[field]) if a["kind"] == "character" else list(look["tags"])
+    tags = tags if tags is not None else list(look["tags"])
     return {"field": field, "text": look[field], "tags": tags, "category": look["category"]}
 
 
@@ -419,7 +435,12 @@ async def describe_project_asset(project_id: int, kind: Kind, entity_id: int) ->
     text = look[field]
     if locked:
         text = f"{identity_text(e.get(field))}\n\n{text}".strip()
-    sets = {field: text, "tags": tags_json(merge_tags(e.get("tags") or [], list(look["tags"])), e["name"])}
+    if kind == "character":
+        text = complete_sheet(text, e["name"], e.get("role"),
+                              [t[6:] for t in e.get("tags") or [] if t.lower().startswith("alias:")])
+    derived = character_tags(text, e.get("tags")) if kind == "character" else None
+    sets = {field: text, "tags": json.dumps(derived, ensure_ascii=False) if derived is not None
+            else tags_json(merge_tags(e.get("tags") or [], list(look["tags"])), e["name"])}
     if kind == "item" and not e.get("category") and look["category"]:
         sets["category"] = look["category"]
     conn = get_db(settings.db_path)
@@ -498,8 +519,8 @@ async def apply_library_identity(asset_id: int, project_id: int, character_id: i
     pictures = [p for p in (_copy(x, dest) for x in sources) if p]
     keep = [t for t in c.get("tags") or [] if t.split(":", 1)[0].lower() not in set(IDENTITY_TAGS.values())
             and not t.startswith("library:")]
-    alias = [t for t in a["tags"] if t.lower().startswith("alias:")]
-    tags = tags_json(merge_tags(keep, alias + identity_tags(identity) + [f"library:{asset_id}"]), c["name"])
+    tags = json.dumps(character_tags(appearance, [f"library:{asset_id}"]) or keep + [f"library:{asset_id}"],
+                      ensure_ascii=False)
     conn = get_db(settings.db_path)
     try:
         conn.execute(

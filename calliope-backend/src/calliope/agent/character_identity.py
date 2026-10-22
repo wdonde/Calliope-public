@@ -16,16 +16,27 @@ from typing import Any
 IDENTITY = "CHARACTER INFORMATION"
 # Sheet label -> tag key; the values say who the character is, not what they wear.
 IDENTITY_TAGS = {
+    "Alias": "alias",
+    "Role": "role",
     "Gender": "gender",
     "Age": "age",
     "Species": "species",
     "Height": "height",
     "Build": "build",
+    "Muscles": "muscles",
+    "Chest": "chest",
+    "Waist and hips": "hips",
+    "Arms": "arms",
+    "Legs": "legs",
     "Skin": "skin",
+    "Face": "face",
     "Eyes": "eyes",
     "Hair": "hair",
     "Distinctive features": "mark",
 }
+# Sheet lines that say who the character is in the story, not how they look:
+# kept in the sheet (and its tags), left out of image prompts.
+STORY_ONLY = ("Alias", "Role")
 
 
 def sections(text: str | None) -> dict[str, list[str]]:
@@ -85,12 +96,39 @@ def _short(value: str, limit: int = 48) -> str:
 
 
 def identity_tags(identity: str | None) -> list[str]:
+    """Tags read from the CHARACTER INFORMATION block only (one alias tag per alias)."""
     tags = []
+    known = fields(identity)
     for label, key in IDENTITY_TAGS.items():
-        value = fields(identity).get(label, "")
-        if value and value.lower() not in ("none", "n/a", "-", "human"):
+        value = known.get(label, "")
+        if not value or value.lower() in ("none", "n/a", "-", "human", "unknown"):
+            continue
+        if label == "Alias":
+            tags += [f"alias:{a.strip()}" for a in re.split(r"[,;/]", value) if a.strip()]
+        else:
             tags.append(f"{key}:{_short(value)}")
     return tags
+
+
+def with_story_fields(identity: str, aliases: list[str], role: str | None) -> str:
+    """Add Alias/Role lines to a sheet that lacks them (older sheets kept these as tags)."""
+    if IDENTITY not in sections(identity):
+        return identity
+    have = fields(identity)
+    lines = identity.splitlines()
+    at = next((i + 1 for i, line in enumerate(lines) if line.strip().lower().startswith("name:")), 1)
+    extra = []
+    if aliases and "Alias" not in have:
+        extra.append(f"Alias: {', '.join(aliases)}")
+    if role and "Role" not in have:
+        extra.append(f"Role: {role.strip().lower()}")
+    return "\n".join(lines[:at] + extra + lines[at:])
+
+
+def for_image(appearance: str | None) -> str:
+    """The appearance without its story-only lines (alias, role) -- for image prompts."""
+    return "\n".join(line for line in (appearance or "").splitlines()
+                     if line.split(":", 1)[0].strip() not in STORY_ONLY)
 
 
 def _age(value: str) -> int | None:
@@ -142,3 +180,24 @@ def match(project_char: dict[str, Any], asset: dict[str, Any]) -> tuple[int, lis
         elif abs(pa - aa) > 20:
             score -= 2
     return score, why
+
+
+def is_sheet(appearance: str | None) -> bool:
+    return (appearance or "").lstrip().startswith(IDENTITY)
+
+
+def complete_sheet(appearance: str, name: str, role: str | None = None, aliases: list[str] | None = None) -> str:
+    """A sheet with Alias (from a quoted nickname in the name, or given) and Role filled in."""
+    from calliope.agent.asset_tags import name_tags
+
+    found = [t.split(":", 1)[1] for t in name_tags(name)] + list(aliases or [])
+    return with_story_fields(appearance, list(dict.fromkeys(found)), role) if is_sheet(appearance) else appearance
+
+
+def character_tags(appearance: str | None, tags: list[str] | None = None) -> list[str] | None:
+    """A character's tags: read from its CHARACTER INFORMATION (plus its library
+    link). None when the appearance is no sheet -- then its tags stay as they are."""
+    if not is_sheet(appearance):
+        return None
+    links = [t for t in tags or [] if t.startswith("library:")]
+    return identity_tags(identity_text(appearance)) + links

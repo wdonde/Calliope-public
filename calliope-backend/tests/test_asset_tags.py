@@ -202,7 +202,8 @@ def test_missing_look_is_generated_as_a_character_sheet(client, monkeypatch):
     out = client.post(f"/api/projects/{pid}/character/{c['id']}/describe").json()
     text = out["appearance"]
     assert text.startswith("CHARACTER INFORMATION\nName: Reed\nAge: 52") and "Species" not in text
-    assert "\n\nOUTFIT\nHeadwear: none\nOuterwear: olive field jacket" in text and out["tags"] == ["faction:Union"]
+    assert "\n\nOUTFIT\nHeadwear: none\nOuterwear: olive field jacket" in text
+    assert out["tags"] == ["gender:male", "age:52", "hair:grey buzz cut", "mark:scar over left eye"]  # from the sheet only
 
     from calliope.agent.prompts import appearance_line
 
@@ -316,7 +317,7 @@ def test_draft_storyline_writes_characters_as_sheets(client, monkeypatch):
 
     async def fake(messages, temperature=0.7, **kw):
         user = messages[1]["content"]
-        assert '"look": {"Age"' in user and "Headwear" in user  # the schema asks for the sheet
+        assert '"look": {"Alias"' in user and '"Muscles"' in user and "Headwear" in user  # the schema asks for the sheet
         m = re.search(r"exactly (\d+) beats", user)
         n = int(m.group(1)) if m else 4
         out = {"beats": [{"order_index": i + 1, "title": f"B{i}", "description": "x"} for i in range(n)]}
@@ -332,7 +333,7 @@ def test_draft_storyline_writes_characters_as_sheets(client, monkeypatch):
     pid = client.post("/api/projects", json={"title": "T", "idea": "x", "target_duration": "1 minute"}).json()["id"]
     assert client.post(f"/api/projects/{pid}/generate-story").status_code == 200
     chars = {c["name"]: c for c in client.get(f"/api/projects/{pid}/assets").json()["characters"]}
-    assert chars["Mia"]["appearance"] == ("CHARACTER INFORMATION\nName: Mia\nAge: 17\nGender: female\n"
+    assert chars["Mia"]["appearance"] == ("CHARACTER INFORMATION\nName: Mia\nRole: protagonist\nAge: 17\nGender: female\n"
                                           "Hair: chestnut ponytail\n\nOUTFIT\nHeadwear: none\nOuterwear: yellow rain jacket")
     assert chars["Old Tom"]["appearance"] == "a bearded fisherman"  # prose answers still work
 
@@ -418,3 +419,28 @@ def test_pictures_overrule_an_earlier_draft():
     assert "stay true to it" in context_block("Story. Earlier draft: brown hair", False)
     with_pics = context_block("Story. Earlier draft: brown hair", True)
     assert "may be wrong" in with_pics and "pictures show replaces it" in with_pics and "stay true" not in with_pics
+
+
+
+def test_sheet_body_alias_role_rules(client):
+    from calliope.agent.asset_create import CHARACTER_SHEET, sheet_text
+    from calliope.agent.prompts import character_sheet_prompt
+
+    labels = [label for label, _ in CHARACTER_SHEET[0][1]]
+    assert labels[:2] == ["Alias", "Role"] and {"Muscles", "Chest", "Waist and hips", "Arms", "Legs"} <= set(labels)
+    sheet = sheet_text("Kaoru Toyma", {"Alias": "Toyma, Kao", "Role": "protagonist", "Build": "curvy",
+                                       "Muscles": "soft, lightly toned", "Legs": "long, full thighs"}, identity_only=True)
+    prompt = character_sheet_prompt({"name": "Kaoru Toyma", "appearance": sheet, "role": "protagonist"})
+    assert "Alias" not in prompt and "Role" not in prompt and "Muscles: soft, lightly toned" in prompt
+
+    pid = client.post("/api/projects", json={"title": "P"}).json()["id"]
+    c = client.post(f"/api/projects/{pid}/characters", json={"name": "Kaoru Toyma", "appearance": sheet,
+                                                            "tags": ["faction:ignored"]}).json()
+    assert c["tags"] == ["alias:Toyma", "alias:Kao", "role:protagonist", "build:curvy",
+                         "muscles:soft, lightly toned", "legs:long, full thighs"]
+    # Typed tags do not stick to a character with a sheet; editing the sheet updates them.
+    c = client.patch(f"/api/projects/{pid}/characters/{c['id']}", json={"tags": ["x:y"]}).json()
+    assert "x:y" not in c["tags"]
+    c = client.patch(f"/api/projects/{pid}/characters/{c['id']}",
+                     json={"appearance": sheet.replace("Build: curvy", "Build: athletic")}).json()
+    assert "build:athletic" in c["tags"]

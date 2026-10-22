@@ -121,6 +121,8 @@ export const es: Dict = {
 	'assets.edit.renderQueued': 'Render queued',
 	'assets.edit.renderingNote': 'Rendering… the new image appears in the library when it is done.',
 	'assets.edit.outdated': 'older version — update it there',
+	'assets.tagsFromSheet': 'Tags are read from the Character information (alias, role, body, face, hair, ...). Edit the sheet to change them.',
+	'assets.tagsFromSheetShort': 'from sheet',
 	'assets.edit.button': 'Edit',
 	'assets.edit.title': 'Edit {name}',
 	'assets.edit.role': 'Role',

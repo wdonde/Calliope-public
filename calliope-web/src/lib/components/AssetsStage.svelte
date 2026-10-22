@@ -1017,6 +1017,7 @@
 								ontolibrary={() => toLibrary('character', char.id, char.name)}
 								pictures={char.source_images?.length ?? 0}
 								onfromimages={() => fromImages('character', char.id)}
+								readonly={(char.appearance ?? '').trimStart().startsWith('CHARACTER INFORMATION')}
 							/>
 							{#if !char.appearance}
 								<Button size="sm" variant="ghost" loading={describing === 'character:' + char.id}

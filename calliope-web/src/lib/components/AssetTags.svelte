@@ -19,8 +19,10 @@
 		/** How many own pictures the asset has; with onfromimages shows "Re-render from pictures". */
 		pictures?: number;
 		onfromimages?: () => void;
+		/** Tags read from the character sheet: shown, not edited here. */
+		readonly?: boolean;
 	}
-	let { tags, category = null, withCategory = false, active = null, onfilter, onsave, ontolibrary, pictures = 0, onfromimages }: Props =
+	let { tags, category = null, withCategory = false, active = null, onfilter, onsave, ontolibrary, pictures = 0, onfromimages, readonly = false }: Props =
 		$props();
 
 	const CATEGORIES = ['weapon', 'vehicle', 'device', 'furniture', 'clothing', 'tool', 'creature', 'prop'];
@@ -71,7 +73,11 @@
 			{#each tags as tag (tag)}
 				<button type="button" class="chip" class:active={active === tag} onclick={() => onfilter(tag)}>{tag}</button>
 			{/each}
-			<button type="button" class="link" onclick={edit}>{tags.length || category ? t('assets.editTags') : t('assets.addTags')}</button>
+			{#if readonly}
+				<span class="from-sheet" title={t('assets.tagsFromSheet')}>{t('assets.tagsFromSheetShort')}</span>
+			{:else}
+				<button type="button" class="link" onclick={edit}>{tags.length || category ? t('assets.editTags') : t('assets.addTags')}</button>
+			{/if}
 			{#if ontolibrary}<button type="button" class="link" onclick={ontolibrary}>{t('assets.toLibrary')}</button>{/if}
 			{#if pictures && onfromimages}
 				<button type="button" class="link" onclick={onfromimages}>{t('assets.fromPictures', { n: pictures })}</button>
@@ -110,6 +116,10 @@
 		background: var(--accent);
 		border-color: var(--accent);
 		color: #fff;
+	}
+	.from-sheet {
+		font-size: 11px;
+		color: var(--text-muted);
 	}
 	.row {
 		display: flex;

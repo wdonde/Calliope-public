@@ -20,7 +20,7 @@ from typing import Any
 from PIL import Image
 
 from calliope.agent.asset_tags import ITEM_CATEGORIES, name_tags, normalize_category, tags_json
-from calliope.agent.character_identity import identity_tags
+from calliope.agent.character_identity import character_tags, complete_sheet, identity_tags
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
     character_image_prompt,
@@ -101,11 +101,18 @@ TAG_KEYS = {
 # so the same character can be drawn as manga, webtoon or 3D.
 CHARACTER_SHEET = (
     ("CHARACTER INFORMATION", (
+        ("Alias", "other names or nicknames, comma separated, or none"),
+        ("Role", "role in the story: protagonist, antagonist, mentor, sidekick, ... or none"),
         ("Age", "age in years or a range"),
         ("Gender", "gender"),
         ("Species", "only if not human, else leave empty"),
         ("Height", "height in cm"),
-        ("Build", "slim / athletic / muscular / stocky / ..."),
+        ("Build", "overall body type and proportions"),
+        ("Muscles", "muscle definition and tone"),
+        ("Chest", "chest or bust size and shape, in neutral terms"),
+        ("Waist and hips", "waist and hip proportions"),
+        ("Arms", "arm length, thickness and musculature"),
+        ("Legs", "leg length, thickness and shape"),
         ("Skin", "skin tone and texture"),
         ("Face", "face shape, jawline, nose, lips"),
         ("Eyes", "eye color and shape"),
@@ -140,7 +147,9 @@ def sheet_text(name: str, look: dict[str, Any], *, identity_only: bool = False, 
             value = (", ".join(str(v) for v in raw) if isinstance(raw, list) else str(raw or "")).strip()
             if label == "Height" and value.isdigit():
                 value += " cm"
-            if value and not (label == "Species" and value.lower() in ("human", "none", "-")):
+            empty = value.lower() in ("none", "-", "n/a", "unknown")
+            if value and not ((label == "Species" and value.lower() == "human")
+                              or (label in ("Species", "Alias", "Role") and empty)):
                 lines.append(f"{label}: {value}")
     return "\n".join(lines)
 
@@ -359,7 +368,10 @@ async def create_asset(project_id: int, *, kind: str, name: str, prompt: str = "
                        generate: bool = True) -> dict[str, Any]:
     images = keep_images(project_id, kind, image_paths or [])
     look = await describe(kind, name, prompt, images, context=project_context(project_id))
-    tags = tags_json(name_tags(name) + list(look["tags"]), name)
+    if kind == "character":
+        look["appearance"] = complete_sheet(look["appearance"], name)
+    derived = character_tags(look["appearance"]) if kind == "character" else None
+    tags = json.dumps(derived) if derived is not None else tags_json(name_tags(name) + list(look["tags"]), name)
     conn = get_db(settings.db_path)
     try:
         if kind == "character":
@@ -417,7 +429,7 @@ async def create_library_asset(*, kind: str, name: str, prompt: str = "", image_
     look = await describe(kind, name, prompt, images, identity_only=kind == "character")
     field = LOOK_HINT[kind][0]
     if kind == "character":
-        look["tags"] = list(look["tags"]) + identity_tags(look[field])
+        look[field] = complete_sheet(look[field], name)
     seed = {"name": name, field: look[field], "role": "", "age": "", "personality": ""}
     consistency = (character_sheet_prompt(seed) if kind == "character"
                    else location_reference_prompt(seed) if kind == "location" else item_reference_prompt(seed))
@@ -429,7 +441,9 @@ async def create_library_asset(*, kind: str, name: str, prompt: str = "", image_
     conn = get_db(settings.db_path)
     try:
         conn.execute("UPDATE library_assets SET category = ?, tags = ?, data_json = ? WHERE id = ?",
-                     (look["category"], tags_json(name_tags(name) + list(look["tags"]), name),
+                     (look["category"],
+                      json.dumps(identity_tags(look[field])) if kind == "character"
+                      else tags_json(name_tags(name) + list(look["tags"]), name),
                       json.dumps(data, ensure_ascii=False), lib_id))
         conn.commit()
         row = row_to_dict(conn.execute("SELECT * FROM library_assets WHERE id = ?", (lib_id,)).fetchone())

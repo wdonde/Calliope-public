@@ -164,7 +164,7 @@ Tone: {tone or "cinematic, atmospheric"}
       "name": "Name",
       "role": "protagonist|antagonist|supporting",
       "age": "approximate age",
-      "look": {{"Age": "", "Gender": "", "Species": "only if not human", "Height": "cm", "Build": "", "Skin": "", "Face": "shape, jaw, nose, lips", "Eyes": "color, shape", "Hair": "color, length, style", "Distinctive features": "scars, tattoos, freckles or none", "Headwear": "or none", "Outerwear": "or none", "Top": "", "Bottom": "", "Footwear": "", "Accessories": "or none", "Signature items": "always carried, or none", "Color palette": "2-3 colors"}},
+      "look": {{"Alias": "other names or nicknames, or none", "Age": "", "Gender": "", "Species": "only if not human", "Height": "cm", "Build": "overall body type", "Muscles": "", "Chest": "neutral terms", "Waist and hips": "", "Arms": "", "Legs": "", "Skin": "", "Face": "shape, jaw, nose, lips", "Eyes": "color, shape", "Hair": "color, length, style", "Distinctive features": "scars, tattoos, freckles or none", "Headwear": "or none", "Outerwear": "or none", "Top": "", "Bottom": "", "Footwear": "", "Accessories": "or none", "Signature items": "always carried, or none", "Color palette": "2-3 colors"}},
       "personality": "concise personality traits",
       "tags": ["alias:every other name or nickname the story uses", "faction:group or side, if any"]
     }}
@@ -267,7 +267,7 @@ Tone: {tone or "cinematic, atmospheric"}
       "name": "Name",
       "role": "protagonist|antagonist|supporting",
       "age": "approximate age",
-      "look": {{"Age": "", "Gender": "", "Species": "only if not human", "Height": "cm", "Build": "", "Skin": "", "Face": "shape, jaw, nose, lips", "Eyes": "color, shape", "Hair": "color, length, style", "Distinctive features": "scars, tattoos, freckles or none", "Headwear": "or none", "Outerwear": "or none", "Top": "", "Bottom": "", "Footwear": "", "Accessories": "or none", "Signature items": "always carried, or none", "Color palette": "2-3 colors"}},
+      "look": {{"Alias": "other names or nicknames, or none", "Age": "", "Gender": "", "Species": "only if not human", "Height": "cm", "Build": "overall body type", "Muscles": "", "Chest": "neutral terms", "Waist and hips": "", "Arms": "", "Legs": "", "Skin": "", "Face": "shape, jaw, nose, lips", "Eyes": "color, shape", "Hair": "color, length, style", "Distinctive features": "scars, tattoos, freckles or none", "Headwear": "or none", "Outerwear": "or none", "Top": "", "Bottom": "", "Footwear": "", "Accessories": "or none", "Signature items": "always carried, or none", "Color palette": "2-3 colors"}},
       "personality": "concise personality traits",
       "tags": ["alias:every other name or nickname the story uses", "faction:group or side, if any"]
     }}
@@ -699,12 +699,14 @@ summaries). If not, fix it."""
 def character_sheet_prompt(character: dict[str, Any]) -> str:
     """Transparent character-sheet template — what ComfyUI receives for turnarounds."""
     name = (character.get("name") or "Unnamed").strip()
-    role = (character.get("role") or "").strip()
     age = (character.get("age") or "").strip()
-    appearance = (character.get("appearance") or "no appearance notes yet").strip()
+    # Alias and role are story facts: they stay in the sheet, not in what is drawn.
+    from calliope.agent.character_identity import for_image
+
+    appearance = for_image(character.get("appearance")).strip() or "no appearance notes yet"
     personality = (character.get("personality") or "").strip()
     personality_line = f"Personality cues (visual only): {personality}\n" if personality else ""
-    facts = " ".join(f"{label}: {value}." for label, value in (("Role", role), ("Age", age)) if value)
+    facts = f"Age: {age}." if age and "\nAge:" not in appearance else ""
     if appearance.startswith("CHARACTER INFORMATION"):
         # A structured sheet speaks for itself; an identity-only sheet (library)
         # gets plain clothes so the identity is not tied to one project's outfit.

@@ -72,8 +72,13 @@
 			await picker?.resolvePaths().then((paths) =>
 				assetLibraryApi.update(asset!.id, { source_images: paths }),
 			);
-			const r = await assetLibraryApi.describeLibrary(asset.id, fields[lookKey] ?? '');
+			// The current text is not sent as notes: notes win over pictures and would keep old mistakes.
+			const r = await assetLibraryApi.describeLibrary(asset.id);
 			fields[lookKey] = r.text;
+			if (isChar) {
+				tags = r.tags.join(', ');
+				return;
+			}
 			// Suggestions only add keys the asset does not have yet (several aliases are fine);
 			// identity tags are read again from the new sheet on save.
 			const current = tags.split(',').map((s) => s.trim()).filter(Boolean);
@@ -99,7 +104,7 @@
 			const keys = [...textFields.map((f) => f.key), 'consistency_prompt'];
 			const saved = await assetLibraryApi.update(asset.id, {
 				name: name.trim(),
-				tags: tags.split(',').map((s) => s.trim()).filter(Boolean),
+				...(isChar ? {} : { tags: tags.split(',').map((s) => s.trim()).filter(Boolean) }),
 				...(asset.kind === 'item' ? { category: category || null } : {}),
 				data: Object.fromEntries(keys.map((k) => [k, fields[k] ?? ''])),
 				source_images: (await picker?.resolvePaths()) ?? [],
@@ -164,7 +169,13 @@
 				{/if}
 				<label>
 					<span class="field-label">{t('assets.edit.tags')}</span>
-					<input class="field-input" bind:value={tags} placeholder="alias:Ripper Eddy, faction:Union Guard" />
+					{#if isChar}
+						<!-- Character tags are read from the sheet below (alias and role included). -->
+						<input class="field-input" value={tags} readonly placeholder="alias:Ripper Eddy, faction:Union Guard" />
+						<span class="muted small">{t('assets.tagsFromSheet')}</span>
+					{:else}
+						<input class="field-input" bind:value={tags} placeholder="alias:Ripper Eddy, faction:Union Guard" />
+					{/if}
 				</label>
 				{#each textFields as f (f.key)}
 					<label>

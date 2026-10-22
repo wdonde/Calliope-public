@@ -127,6 +127,7 @@
 						onsave={(f) => act(() => assetLibraryApi.update(a.id, f))}
 						pictures={(a.data.source_images as string[] | undefined)?.length ?? 0}
 						onfromimages={() => act(() => assetLibraryApi.libraryFromImages(a.id), t('assets.fromPicturesQueued'))}
+						readonly={a.kind === 'character'}
 					/>
 					{#if a.data.pending_job}<p class="muted small">{t('assets.rendering')}</p>{/if}
 					<p class="desc muted small">{String(a.data.appearance ?? a.data.description ?? '')}</p>
