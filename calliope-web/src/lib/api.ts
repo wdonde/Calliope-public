@@ -290,6 +290,9 @@ export const assetLibraryApi = {
 			`/api/projects/${projectId}/character/${characterId}/update-from-library`,
 			{ method: 'POST', body: JSON.stringify({ replace_prompt: replacePrompt }) },
 		),
+	/** Exactly what a render sends: prompt, reference pictures, and whether Calliope wrote the prompt. */
+	renderPreview: (assetId: number) =>
+		api<{ prompt: string; refs: string[]; auto: boolean }>(`/api/asset-library/${assetId}/render-preview`),
 	libraryFromImages: (assetId: number) =>
 		api<{ job_id: number }>(`/api/asset-library/${assetId}/from-images`, { method: 'POST' }),
 	fromImages: (projectId: number, kind: AssetKind, entityId: number) =>

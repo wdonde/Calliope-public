@@ -24,6 +24,8 @@ from calliope.agent.asset_create import (
     create_library_asset,
     describe,
     enqueue_from_images,
+    image_prompt,
+    prompt_is_auto,
     project_context,
 )
 from calliope.agent.asset_tags import merge_tags, normalize_category, suggest_tags, tags_json
@@ -249,6 +251,12 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
         if "tags" in fields:
             sets["tags"] = tags_json(fields["tags"], sets.get("name") or asset["name"])
         data = dict(asset["data"])
+        # Was the stored image prompt made by Calliope (then it follows the changes below)?
+        before = {"name": asset["name"], **asset["data"]}
+        prompt_auto = prompt_is_auto(asset["kind"], before)
+        typed = (fields.get("data") or {}).get("consistency_prompt")
+        if typed is not None and typed.strip() != (asset["data"].get("consistency_prompt") or "").strip():
+            prompt_auto = not typed.strip()  # the user wrote one -- or emptied it to get it back
         for key, value in (fields.get("data") or {}).items():
             if key in FIELDS[asset["kind"]]:
                 data[key] = value
@@ -271,21 +279,21 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
             if derived is not None:
                 sets["tags"] = json.dumps(derived, ensure_ascii=False)
         if asset["kind"] == "character" and "appearance" in (fields.get("data") or {}):
-            if not (data.get("consistency_prompt") or "").strip():
-                data["consistency_prompt"] = character_sheet_prompt({"name": sets.get("name") or asset["name"],
-                                                                     "appearance": data["appearance"]})
             derived = character_tags(data["appearance"])
             if derived is not None:
                 sets["tags"] = json.dumps(derived, ensure_ascii=False)
         if asset["kind"] == "character" and "tags" in sets and is_sheet(data.get("appearance")):
             # A character's tags come from its sheet; typed tags are not kept.
             sets["tags"] = json.dumps(character_tags(data["appearance"]), ensure_ascii=False)
-        if "source_images" in fields:
-            _check_upload_paths(fields["source_images"] or [])
+        if fields.get("source_images") is not None:  # null = unchanged; [] = remove all
+            _check_upload_paths(fields["source_images"])
             keep = _library_dir(asset_id) / "source"
             data["source_images"] = [c for c in (p if Path(p).parent == keep else _copy(p, keep)
                                                  for p in fields["source_images"] or []) if c]
-        if "data" in fields or "source_images" in fields or asset["kind"] == "character":
+        if prompt_auto:
+            # Rebuilt from the new state: short reference prompt with pictures, full template without.
+            data["consistency_prompt"] = image_prompt(asset["kind"], {"name": sets.get("name") or asset["name"], **data})[0]
+        if "data" in fields or fields.get("source_images") is not None or asset["kind"] == "character":
             sets["data_json"] = json.dumps(data, ensure_ascii=False)
         if sets:
             cols = ", ".join(f"{k} = :{k}" for k in sets)
@@ -575,3 +583,20 @@ async def update_from_library(project_id: int, character_id: int, payload: Apply
     if not linked:
         raise HTTPException(status_code=404, detail="This character is not linked to the library.")
     return await apply_library_identity(int(linked[-1]), project_id, character_id, payload)
+
+@router.get("/asset-library/{asset_id}/render-preview")
+async def library_render_preview(asset_id: int) -> dict[str, Any]:
+    """Exactly what a render sends: the prompt and the reference pictures."""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM library_assets WHERE id = ?", (asset_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Library asset not found")
+    a = _out(row)
+    entity = {"name": a["name"], **a["data"]}
+    built, refs = image_prompt(a["kind"], entity)
+    stored = (entity.get("consistency_prompt") or "").strip()
+    auto = prompt_is_auto(a["kind"], entity)
+    return {"prompt": built if auto or not stored else stored, "refs": refs, "auto": auto}

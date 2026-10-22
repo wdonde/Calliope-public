@@ -412,7 +412,9 @@ def test_color_picture_leads_and_style_is_kept(client, monkeypatch):
     pid = client.post("/api/projects", json={"title": "K"}).json()["id"]
     job = ac.enqueue_from_images(pid, "character", entity)
     prompt = job["payload"]["prompt"] if "payload" in job else json.loads(job["payload_json"])["prompt"]
-    assert "same art style as the reference" in prompt and "colors from the color reference" in prompt
+    assert prompt.startswith("Character reference sheet of Kaoru, the person in the reference pictures.")
+    assert "first picture shows the face and the colors" in prompt and "Keep exactly: face, hairstyle" in prompt
+    assert "Colors: hair blue." in prompt and "cinematic" not in prompt and "neutral clothing" not in prompt
 
 
 def test_pictures_overrule_an_earlier_draft():
@@ -482,3 +484,33 @@ def test_alias_and_role_are_own_fields_linked_into_the_sheet(client, monkeypatch
     c = client.patch(f"/api/projects/{pid}/characters/{c['id']}",
                      json={"appearance": "CHARACTER INFORMATION\nName: Kaoru\nAlias: X\nRole: Y\nAge: 30"}).json()
     assert "Alias: Toyma\nRole: protagonist\nAge: 30" in c["appearance"]
+
+
+
+def test_image_prompt_follows_pictures_unless_written_by_hand(client):
+    from calliope.config import settings
+
+    pid = client.post("/api/projects", json={"title": "P"}).json()["id"]
+    c = client.post(f"/api/projects/{pid}/characters", json={
+        "name": "Kaoru", "appearance": "CHARACTER INFORMATION\nName: Kaoru\nHair: dark blue\nEyes: brown\nBuild: curvy"}).json()
+    lib = client.post(f"/api/projects/{pid}/character/{c['id']}/to-library").json()
+    assert lib["data"]["consistency_prompt"].startswith("CHARACTER SHEET")  # no pictures: full template
+
+    pic = Path(settings.assets_dir) / "uploads" / "kaoru.png"
+    pic.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (40, 60), (30, 40, 200)).save(pic)
+    with_pic = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": [str(pic)]}).json()
+    prompt = with_pic["data"]["consistency_prompt"]
+    assert prompt.startswith("Character reference sheet of Kaoru") and "Colors: hair dark blue; eyes brown." in prompt
+    assert "Build" not in prompt  # body text could contradict the picture
+    preview = client.get(f"/api/asset-library/{lib['id']}/render-preview").json()
+    assert preview["prompt"] == prompt and len(preview["refs"]) == 1 and preview["auto"]
+
+    own = client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"consistency_prompt": "MY PROMPT"}}).json()
+    assert own["data"]["consistency_prompt"] == "MY PROMPT"
+    same = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": None}).json()
+    assert len(same["data"]["source_images"]) == 1  # null leaves the pictures alone
+    kept = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": []}).json()
+    assert kept["data"]["consistency_prompt"] == "MY PROMPT"  # written by hand: not rebuilt
+    back = client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"consistency_prompt": ""}}).json()
+    assert back["data"]["consistency_prompt"].startswith("CHARACTER SHEET")  # emptied: rebuilt

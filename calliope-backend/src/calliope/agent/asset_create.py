@@ -23,11 +23,8 @@ from calliope.agent.asset_tags import ITEM_CATEGORIES, name_tags, normalize_cate
 from calliope.agent.character_identity import character_tags, complete_sheet, identity_tags, story_fields
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
-    character_image_prompt,
     character_sheet_prompt,
-    item_image_prompt,
     item_reference_prompt,
-    location_image_prompt,
     location_reference_prompt,
 )
 from calliope.comfyui.parser import parse_dynamic_inputs
@@ -313,6 +310,75 @@ def _pick_workflow(n_refs: int, kind: str = "character") -> int | None:
     return resolve({"character": "asset_sheet", "location": "asset_location", "item": "asset_item"}[kind])
 
 
+COLOR_LINES = ("Hair", "Eyes", "Skin", "Color palette")
+
+
+def _colors(entity: dict[str, Any]) -> list[str]:
+    """Color facts from a character sheet ('Hair: dark blue, ...')."""
+    from calliope.agent.character_identity import fields as sheet_fields, identity_text
+
+    known = {**sheet_fields(identity_text(entity.get("appearance"))),
+             **{line.split(":", 1)[0].strip(): line.split(":", 1)[1].strip()
+                for line in (entity.get("appearance") or "").splitlines() if ":" in line}}
+    return [f"{label.lower()} {known[label]}" for label in COLOR_LINES if known.get(label)]
+
+
+def reference_prompt(kind: str, entity: dict[str, Any], n_refs: int, all_gray: bool) -> str:
+    """Short prompt when the asset's own pictures go in as references: the
+    pictures lead (face, body, clothes, style); only colors come from the
+    text, so nothing in it can contradict the pictures."""
+    pics = "the reference picture" if n_refs == 1 else "the reference pictures"
+    roles = ("" if n_refs < 2 else
+             " The first picture shows the face and the colors, the second the full body.")
+    gray = (" The reference pictures are black-and-white line art: keep their shapes and render in full color."
+            if all_gray else "")
+    if kind == "character":
+        colors = _colors(entity)
+        return (
+            f"Character reference sheet of {entity.get('name') or 'the character'}, the person in {pics}.{roles}\n"
+            "Keep exactly: face, hairstyle, body shape and proportions, clothes, art style and line work.\n"
+            + (f"Colors: {'; '.join(colors)}.\n" if colors else "")
+            + "Layout: front full body, side full body, back full body and a head close-up, same person in every "
+              "view, neutral standing pose, plain light background, no text, no other people." + gray
+        )
+    if kind == "location":
+        return (f"Reference image of {entity.get('name') or 'the place'}, the place in {pics}.\n"
+                "Keep exactly: layout, architecture, materials, light and art style.\n"
+                "Show it as a clear establishing view with room for characters, no people, no text." + gray)
+    return (f"Reference image of {entity.get('name') or 'the object'}, the object in {pics}.\n"
+            "Keep exactly: shape, colors, materials, details and art style.\n"
+            "Single object, centered, plain light background, no people, no text." + gray)
+
+
+def text_prompt(kind: str, entity: dict[str, Any]) -> str:
+    """The detailed template from the description (no pictures)."""
+    if kind == "character":
+        return character_sheet_prompt(entity)
+    return location_reference_prompt(entity) if kind == "location" else item_reference_prompt(entity)
+
+
+def image_prompt(kind: str, entity: dict[str, Any]) -> tuple[str, list[str]]:
+    """(prompt, reference pictures) as they go to ComfyUI for this asset."""
+    images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
+    refs = pick_refs(images) if images else []
+    if not refs:
+        return text_prompt(kind, entity), []
+    return reference_prompt(kind, entity, len(refs), all(is_grayscale(p) for p in images)), refs
+
+
+def prompt_is_auto(kind: str, entity: dict[str, Any]) -> bool:
+    """Whether the stored image prompt is one Calliope made (so it may be rebuilt),
+    not one the user wrote: empty, or equal to any template for this asset."""
+    stored = (entity.get("consistency_prompt") or "").strip()
+    if not stored:
+        return True
+    made = {text_prompt(kind, entity).strip()}
+    for n in (1, 2):
+        for gray in (False, True):
+            made.add(reference_prompt(kind, entity, n, gray).strip())
+    return stored in made
+
+
 def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
                         target: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Queue the sheet/reference render with the asset's own pictures as references.
@@ -327,29 +393,12 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
         refs, wf = [], _pick_workflow(0, kind)
     if wf is None:
         return None
-    if kind == "character":
-        prompt = character_image_prompt(entity, kind="sheet")
-        if refs:
-            prompt += (" The character looks exactly like the person in the reference picture(s): same face, "
-                       "hair, build and outfit; draw them in the sheet layout described above.")
-    elif kind == "location":
-        prompt = location_image_prompt(entity)
-        if refs:
-            prompt += " Show the same place as the reference picture(s): same layout, materials and light."
-    else:
-        prompt = item_image_prompt(entity)
-        if refs:
-            prompt += " Show the same object as the reference picture(s): same shape, colors and details."
-    if refs:
-        # Without this an identity-only sheet (no style) comes out photoreal.
-        prompt += " Draw in the same art style as the reference picture(s): same drawing style, line work and proportions."
-    if refs and any(not is_grayscale(p) for p in refs) and any(is_grayscale(p) for p in images):
-        prompt += (" Take hair, eye and skin colors from the color reference picture; the black-and-white "
-                   "picture only shows shapes.")
-    if refs and all(is_grayscale(p) for p in images):
-        # Ink/manga references would otherwise pull the render into black-and-white.
-        prompt += (" The reference picture(s) are black-and-white line art: take only shapes and features from "
-                   "them and render in full color, with exactly the colors written above.")
+    # What is sent is what the Image prompt field shows: the user's own text, or
+    # the prompt Calliope builds (reference mode with pictures, text mode without).
+    built, _ = image_prompt(kind, {**entity, "source_images": refs})
+    prompt = (entity.get("consistency_prompt") or "").strip()
+    if not prompt or prompt_is_auto(kind, entity):
+        prompt = built
     conn = get_db(settings.db_path)
     try:
         wf_json = json.loads(conn.execute("SELECT workflow_json FROM workflows WHERE id = ?", (wf,)).fetchone()[0])
@@ -383,23 +432,24 @@ async def create_asset(project_id: int, *, kind: str, name: str, prompt: str = "
             cur = conn.execute(
                 "INSERT INTO characters (project_id, name, appearance, consistency_prompt, tags, source_images, alias, role) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (project_id, name, look["appearance"], character_sheet_prompt(seed), tags, json.dumps(images),
-                 alias or None, role or None),
+                (project_id, name, look["appearance"], image_prompt(kind, {**seed, "source_images": images})[0], tags,
+                 json.dumps(images), alias or None, role or None),
             )
         elif kind == "location":
             seed = {"name": name, "description": look["description"]}
             cur = conn.execute(
                 "INSERT INTO locations (project_id, name, description, consistency_prompt, tags, source_images) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (project_id, name, look["description"], location_reference_prompt(seed), tags, json.dumps(images)),
+                (project_id, name, look["description"], image_prompt(kind, {**seed, "source_images": images})[0], tags,
+                 json.dumps(images)),
             )
         else:
             seed = {"name": name, "description": look["description"]}
             cur = conn.execute(
                 "INSERT INTO items (project_id, name, description, consistency_prompt, tags, category, source_images) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (project_id, name, look["description"], item_reference_prompt(seed), tags, look["category"],
-                 json.dumps(images)),
+                (project_id, name, look["description"], image_prompt(kind, {**seed, "source_images": images})[0], tags,
+                 look["category"], json.dumps(images)),
             )
         conn.commit()
         entity = row_to_dict(conn.execute(f"SELECT * FROM {TABLES[kind]} WHERE id = ?", (cur.lastrowid,)).fetchone())
@@ -436,8 +486,7 @@ async def create_library_asset(*, kind: str, name: str, prompt: str = "", image_
     if kind == "character":
         look[field] = complete_sheet(look[field], name)
     seed = {"name": name, field: look[field], "role": "", "age": "", "personality": ""}
-    consistency = (character_sheet_prompt(seed) if kind == "character"
-                   else location_reference_prompt(seed) if kind == "location" else item_reference_prompt(seed))
+    consistency = image_prompt(kind, {**seed, "source_images": images})[0]
     data: dict[str, Any] = {field: look[field], "consistency_prompt": consistency, "source_images": images}
     if kind == "character":
         data["alias"], data["role"] = story_fields(look[field])

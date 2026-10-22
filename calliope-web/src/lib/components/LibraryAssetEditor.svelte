@@ -55,10 +55,22 @@
 		pics = ((d.source_images as string[] | undefined) ?? []).map((path) => ({ src: assetUrl(path) ?? '', path }));
 		savedState = snapshot();
 		rendering = false;
+		void loadPreview();
 	});
 	$effect(() => {
 		if (!open) loadedFor = null;
 	});
+
+	// What a render sends right now (saved state): prompt + reference pictures.
+	let preview = $state<{ prompt: string; refs: string[]; auto: boolean } | null>(null);
+	async function loadPreview() {
+		if (!asset) return;
+		try {
+			preview = await assetLibraryApi.renderPreview(asset.id);
+		} catch {
+			preview = null;
+		}
+	}
 
 	// Render works on the saved asset, so it waits until the form is saved.
 	let savedState = $state('');
@@ -127,6 +139,7 @@
 			fields = { ...fields, consistency_prompt: String(saved.data.consistency_prompt ?? fields.consistency_prompt) };
 			pics = ((saved.data.source_images as string[] | undefined) ?? []).map((path) => ({ src: assetUrl(path) ?? '', path }));
 			savedState = snapshot();
+			void loadPreview();
 			toast.success(t('assets.edit.saved'));
 			onsaved();
 		} catch (err) {
@@ -207,8 +220,24 @@
 				<label>
 					<span class="field-label">{t('assets.edit.prompt')}</span>
 					<textarea class="field-textarea mono" rows="8" bind:value={fields.consistency_prompt}></textarea>
-					<span class="muted small">{t('assets.edit.promptHint')}</span>
+					<span class="muted small">
+						{preview?.auto ? t('assets.edit.promptAuto') : t('assets.edit.promptOwn')}
+						{#if !preview?.auto}
+							<button type="button" class="gen" onclick={() => (fields.consistency_prompt = '')}>
+								{t('assets.edit.promptReset')}
+							</button>
+						{/if}
+					</span>
 				</label>
+				{#if preview}
+					<div class="refs">
+						<span class="field-label">{t('assets.edit.sentRefs', { n: preview.refs.length })}</span>
+						<div class="ref-row">
+							{#each preview.refs as r (r)}<img src={assetUrl(r)} alt="" />{/each}
+							{#if !preview.refs.length}<span class="muted small">{t('assets.edit.noRefs')}</span>{/if}
+						</div>
+					</div>
+				{/if}
 				<div>
 					<span class="field-label">{t('assets.new.pictures', { max: 6 })}</span>
 					<PicturePicker bind:this={picker} bind:pics />
@@ -277,6 +306,22 @@
 	}
 	.status {
 		margin-right: auto;
+	}
+	.refs {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.ref-row {
+		display: flex;
+		gap: 6px;
+	}
+	.ref-row img {
+		width: 64px;
+		height: 64px;
+		object-fit: cover;
+		border-radius: 6px;
+		border: 1px solid var(--border);
 	}
 	.mono {
 		font-family: var(--font-mono, monospace);
