@@ -396,7 +396,7 @@ def test_color_picture_leads_and_style_is_kept(client, monkeypatch):
     face = up / "face.png"
     Image.new("RGB", (430, 340), (40, 60, 200)).save(face)
     images = [*pages, str(face)]
-    assert ac.pick_refs(images) == [str(face), pages[0]]  # color first, then the tallest (full body)
+    assert ac.pick_refs(images) == [str(face), pages[0], pages[1]]  # color first, tallest (full body), the rest
 
     asyncio.run(ac.describe("character", "Kaoru", "", images, identity_only=True))
     texts = seen[0]
@@ -499,6 +499,10 @@ def test_image_prompt_follows_pictures_unless_written_by_hand(client):
     pic = Path(settings.assets_dir) / "uploads" / "kaoru.png"
     pic.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (40, 60), (30, 40, 200)).save(pic)
+    client.post("/api/workflows", json={"name": "Klein 1 ref", "kind": "image", "workflow_json": {
+        "10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+        "50": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "Ref (Input:image)"}},
+        "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}})
     with_pic = client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": [str(pic)]}).json()
     prompt = with_pic["data"]["consistency_prompt"]
     assert prompt.startswith("Character reference sheet of Kaoru") and "Colors: hair dark blue; eyes brown." in prompt
@@ -520,3 +524,32 @@ def test_image_prompt_follows_pictures_unless_written_by_hand(client):
     assert kept["data"]["consistency_prompt"] == "MY PROMPT"  # written by hand: not rebuilt
     back = client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"consistency_prompt": ""}}).json()
     assert back["data"]["consistency_prompt"].startswith("CHARACTER SHEET")  # emptied: rebuilt
+
+
+
+def test_all_pictures_go_in_as_far_as_a_workflow_takes_them(client):
+    import calliope.agent.asset_create as ac
+    from calliope.config import settings
+
+    def wf(n):
+        w = {"10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+             "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}
+        for i in range(n):
+            w[str(50 + 10 * i)] = {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": f"R{i} (Input:image)"}}
+        return w
+
+    up = Path(settings.assets_dir) / "uploads"
+    up.mkdir(parents=True, exist_ok=True)
+    pics = []
+    for i in range(6):
+        p = up / f"v{i}.png"
+        Image.new("RGB", (50 + i, 80), (20 * i, 60, 90)).save(p)
+        pics.append(str(p))
+    four = client.post("/api/workflows", json={"name": "Klein 4", "kind": "image", "workflow_json": wf(4)}).json()["id"]
+    refs, used = ac.usable_refs(pics, "character")
+    assert len(refs) == 4 and used == four  # no 5/6-input workflow: as many as fit
+    six = client.post("/api/workflows", json={"name": "Klein 6", "kind": "image", "workflow_json": wf(6)}).json()["id"]
+    refs, used = ac.usable_refs(pics, "character")
+    assert len(refs) == 6 and used == six
+    prompt, sent = ac.image_prompt("character", {"name": "K", "source_images": pics})
+    assert "images 3 to 6 (more views)" in prompt and sent == refs

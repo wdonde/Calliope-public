@@ -22,6 +22,8 @@ ROLES: dict[str, tuple[int, str, str]] = {
     "asset_item": (0, "Item reference (text)", "Assets: an item reference image."),
     "asset_refs_1": (1, "Asset from 1 picture", "New asset / re-render with one own picture."),
     "asset_refs_2": (2, "Asset from 2 pictures", "New asset / re-render with two own pictures (color + full body)."),
+    **{f"asset_refs_{n}": (n, f"Asset from {n} pictures", f"New asset / re-render with {n} own pictures "
+                           "(image 1 color face, image 2 full body, the rest more views).") for n in range(3, 7)},
     "panel_text": (0, "Comic panel (no reference)", "Panels without a character sheet."),
     "panel_refs_1": (1, "Comic panel (1 reference)", "Panels with one character reference."),
     "panel_refs_2": (2, "Comic panel (2 references)", "Panels with two references (two characters, or body + face)."),

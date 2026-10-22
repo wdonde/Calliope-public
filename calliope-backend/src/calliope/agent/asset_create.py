@@ -70,10 +70,11 @@ def color_hint(images: list[str]) -> str:
     return MIXED_HINT if any(gray) else ""
 
 
-def pick_refs(images: list[str]) -> list[str]:
-    """At most two references at full size (a collage shrinks faces to nothing):
-    a color picture first (it carries the colors), then the tallest other
-    picture (usually the full body)."""
+def pick_refs(images: list[str], limit: int = MAX_IMAGES) -> list[str]:
+    """The asset's pictures in reference order, each at full size (a collage
+    shrinks faces to nothing): image 1 the biggest color picture (it carries the
+    colors), image 2 the tallest other one (usually the full body), then the
+    rest, biggest first."""
     def area(p: str) -> int:
         with Image.open(p) as im:
             return im.width * im.height
@@ -85,7 +86,21 @@ def pick_refs(images: list[str]) -> list[str]:
     color = sorted((p for p in images if not is_grayscale(p)), key=area, reverse=True)
     first = color[0] if color else max(images, key=area)
     rest = [p for p in images if p != first]
-    return [first] + ([max(rest, key=tallness)] if rest else [])
+    second = [max(rest, key=tallness)] if rest else []
+    others = sorted((p for p in rest if p not in second), key=area, reverse=True)
+    return ([first] + second + others)[:limit]
+
+
+def usable_refs(images: list[str], kind: str) -> tuple[list[str], int | None]:
+    """(references, workflow): as many pictures as an enabled workflow takes,
+    fewer when no workflow has that many image inputs; none -> text workflow."""
+    refs = pick_refs(images) if images else []
+    while refs:
+        wf = _pick_workflow(len(refs), kind)
+        if wf is not None:
+            return refs, wf
+        refs = refs[:-1]
+    return [], _pick_workflow(0, kind)
 
 
 TAG_KEYS = {
@@ -306,7 +321,7 @@ def _pick_workflow(n_refs: int, kind: str = "character") -> int | None:
     from calliope.workflow_roles import resolve
 
     if n_refs:
-        return resolve("asset_refs_2" if n_refs >= 2 else "asset_refs_1")
+        return resolve(f"asset_refs_{min(n_refs, MAX_IMAGES)}")
     return resolve({"character": "asset_sheet", "location": "asset_location", "item": "asset_item"}[kind])
 
 
@@ -337,11 +352,15 @@ def reference_prompt(kind: str, entity: dict[str, Any], n_refs: int, all_gray: b
         where = f"the person in {pics}.{roles}"
         place, thing = f"the place in {pics}.", f"the object in {pics}."
     else:
+        more = "" if n_refs < 3 else (" and image 3 (more views)" if n_refs == 3 else
+                                      f" and images 3 to {n_refs} (more views)")
         where = ("the person in image 1." if n_refs == 1 else
+                 f"the person in image 1 (face and colors), image 2 (full body){more}." if n_refs > 2 else
                  "the person in image 1 (face and colors) and image 2 (full body).")
-        place = "the place in image 1." if n_refs == 1 else "the place in image 1 and image 2."
-        thing = "the object in image 1." if n_refs == 1 else "the object in image 1 and image 2."
-    refs = "the reference pictures" if legacy else ("image 1" if n_refs == 1 else "image 1 and image 2")
+        span = "image 1" if n_refs == 1 else "image 1 and image 2" if n_refs == 2 else f"images 1 to {n_refs}"
+        place, thing = f"the place in {span}.", f"the object in {span}."
+    refs = ("the reference pictures" if legacy else
+            "image 1" if n_refs == 1 else "image 1 and image 2" if n_refs == 2 else f"images 1 to {n_refs}")
     gray = (f" {'The reference pictures are' if legacy else refs[0].upper() + refs[1:] + (' is' if n_refs == 1 else ' are')} "
             f"black-and-white line art: keep {'its' if n_refs == 1 and not legacy else 'their'} shapes and render "
             "in full color." if all_gray else "")
@@ -373,7 +392,7 @@ def text_prompt(kind: str, entity: dict[str, Any]) -> str:
 def image_prompt(kind: str, entity: dict[str, Any]) -> tuple[str, list[str]]:
     """(prompt, reference pictures) as they go to ComfyUI for this asset."""
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
-    refs = pick_refs(images) if images else []
+    refs, _ = usable_refs(images, kind)
     if not refs:
         return text_prompt(kind, entity), []
     return reference_prompt(kind, entity, len(refs), all(is_grayscale(p) for p in images)), refs
@@ -386,7 +405,7 @@ def prompt_is_auto(kind: str, entity: dict[str, Any]) -> bool:
     if not stored:
         return True
     made = {text_prompt(kind, entity).strip()}
-    for n in (1, 2):
+    for n in range(1, MAX_IMAGES + 1):
         for gray in (False, True):
             for legacy in (False, True):
                 made.add(reference_prompt(kind, entity, n, gray, legacy=legacy).strip())
@@ -398,13 +417,7 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
     """Queue the sheet/reference render with the asset's own pictures as references.
     ``target`` says where the worker writes the result (default: the project asset)."""
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
-    refs = pick_refs(images) if images else []
-    wf = _pick_workflow(len(refs))
-    if wf is None and len(refs) == 2:
-        refs = refs[:1]
-        wf = _pick_workflow(1)
-    if wf is None:
-        refs, wf = [], _pick_workflow(0, kind)
+    refs, wf = usable_refs(images, kind)
     if wf is None:
         return None
     # What is sent is what the Image prompt field shows: the user's own text, or
