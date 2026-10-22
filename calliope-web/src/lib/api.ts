@@ -410,6 +410,8 @@ export interface Settings {
 	llm_chars_per_token: number;
 	llm_max_output_tokens: number;
 	agent_llm_assignments: Record<string, string | null>;
+	/** Workflow per job (Settings > Workflows roles); missing = Auto. */
+	workflow_assignments?: Record<string, number | null>;
 	agent_shell_enabled: boolean;
 	/** Attach reference images/frames to the H3 prompt rewrite (slow on local vision models). */
 	h3_rewrite_vision: boolean;
@@ -586,6 +588,18 @@ export const settings = {
 		),
 	update: (payload: Record<string, unknown>) =>
 		api<Settings>('/api/settings', { method: 'POST', body: JSON.stringify(payload) }),
+	workflowRoles: () =>
+		api<
+			{
+				key: string;
+				label: string;
+				hint: string;
+				images: number;
+				assigned: number | null;
+				resolved: number | null;
+				candidates: { id: number; name: string }[];
+			}[]
+		>('/api/settings/workflow-roles'),
 	/**
 	 * List the models an endpoint serves. `api_key` is only sent when the form
 	 * holds an unsaved draft; otherwise the backend falls back to the key saved

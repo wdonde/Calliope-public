@@ -57,6 +57,7 @@ class SettingsUpdate(BaseModel):
     llm_profiles: list[LlmProfileIn] | None = None
     llm_active_id: str | None = None
     agent_llm_assignments: dict[str, str | None] | None = None
+    workflow_assignments: dict[str, int | None] | None = None
     comfyui_base_url: str | None = None
     data_dir: str | None = None
     assets_dir: str | None = None
@@ -211,6 +212,7 @@ async def update_settings(payload: SettingsUpdate) -> dict[str, Any]:
     profiles_in = data.pop("llm_profiles", None)
     active_in = data.pop("llm_active_id", None)
     assignments_in = data.pop("agent_llm_assignments", None)
+    workflows_in = data.pop("workflow_assignments", None)
     legacy_llm = {k: data.pop(k) for k in list(data) if k in _LEGACY_LLM_KEYS}
 
     for key, value in data.items():
@@ -259,6 +261,13 @@ async def update_settings(payload: SettingsUpdate) -> dict[str, Any]:
             cleaned[role] = pid
         settings.agent_llm_assignments = cleaned
 
+    if workflows_in is not None:
+        from calliope.workflow_roles import ROLES
+
+        settings.workflow_assignments = {
+            role: int(wid) if wid else None for role, wid in workflows_in.items() if role in ROLES
+        }
+
     if legacy_llm:
         for key, value in legacy_llm.items():
             setattr(settings, key, value)
@@ -266,3 +275,11 @@ async def update_settings(payload: SettingsUpdate) -> dict[str, Any]:
 
     settings.save_config_file()
     return settings.to_public_dict()
+
+
+@router.get("/workflow-roles")
+async def workflow_roles() -> list[dict[str, Any]]:
+    """Each workflow role, its assignment and the workflows that fit it."""
+    from calliope.workflow_roles import overview
+
+    return overview()

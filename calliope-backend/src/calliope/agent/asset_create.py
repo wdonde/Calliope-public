@@ -304,10 +304,13 @@ def project_context(project_id: int | None) -> str:
     return f"{head}. {(p.get('idea') or '')[:1500]}".strip()
 
 
-def _pick_workflow(n_refs: int) -> int | None:
-    from calliope.agent.comic import _pick_workflow as pick  # Klein-first, by reference count
+def _pick_workflow(n_refs: int, kind: str = "character") -> int | None:
+    """The asset workflow for this many own pictures (Settings > Workflows roles, else Auto)."""
+    from calliope.workflow_roles import resolve
 
-    return pick(n_refs)
+    if n_refs:
+        return resolve("asset_refs_2" if n_refs >= 2 else "asset_refs_1")
+    return resolve({"character": "asset_sheet", "location": "asset_location", "item": "asset_item"}[kind])
 
 
 def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
@@ -321,7 +324,7 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
         refs = refs[:1]
         wf = _pick_workflow(1)
     if wf is None:
-        refs, wf = [], _pick_workflow(0)
+        refs, wf = [], _pick_workflow(0, kind)
     if wf is None:
         return None
     if kind == "character":

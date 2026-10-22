@@ -65,9 +65,15 @@ async def enqueue_asset_jobs(
         "agent.thinking",
         {"message": "Preparing asset generation from saved image prompts…", "project_id": project_id},
     )
-    workflow = _get_enabled_workflow("image", workflow_id)
-    workflow_json = json.loads(workflow["workflow_json"]) if workflow else {}
-    inputs = parse_dynamic_inputs(workflow_json) if workflow_json else []
+    # Without an explicit workflow each kind uses its role (Settings > Workflows).
+    from calliope.workflow_roles import resolve
+
+    def pick(role: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+        wf = _get_enabled_workflow("image", workflow_id if workflow_id is not None else resolve(role))
+        wf_json = json.loads(wf["workflow_json"]) if wf else {}
+        return wf, parse_dynamic_inputs(wf_json) if wf_json else []
+
+    workflow, inputs = pick("asset_sheet")
     target = asset_target if asset_target in {"sheet", "portrait"} else "sheet"
     input_values_override = _sanitize_input_overrides(input_values_override)
     has_override = bool(input_values_override)
@@ -128,6 +134,8 @@ async def enqueue_asset_jobs(
         # Only enqueue locations when not doing a character-only generate
         enqueue_locs = location_ids is not None or character_ids is None
         if enqueue_locs:
+            workflow, inputs = pick("asset_location")
+            allow_empty_prompt = has_override or not _has_text_inputs(inputs)
             for row in locs:
                 loc = row_to_dict(row)
                 if location_ids is not None and loc["id"] not in location_ids:
@@ -170,6 +178,8 @@ async def enqueue_asset_jobs(
         # Only enqueue items when not doing a character/location-only generate
         enqueue_items = item_ids is not None or (character_ids is None and location_ids is None)
         if enqueue_items:
+            workflow, inputs = pick("asset_item")
+            allow_empty_prompt = has_override or not _has_text_inputs(inputs)
             for row in items:
                 item = row_to_dict(row)
                 if item_ids is not None and item["id"] not in item_ids:

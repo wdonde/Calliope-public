@@ -69,9 +69,9 @@ def colorize_prompt(notes: str, colors: list[str]) -> str:
 
 
 def _one_ref_workflow() -> int | None:
-    from calliope.agent.comic import _pick_workflow
+    from calliope.workflow_roles import resolve
 
-    return _pick_workflow(1)
+    return resolve("colorize")
 
 
 def colorize(image_path: str, *, notes: str = "", project_id: int | None = None,

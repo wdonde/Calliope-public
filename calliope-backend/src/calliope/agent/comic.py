@@ -246,20 +246,10 @@ def list_panels(project_id: int, *, conn=None) -> list[dict[str, Any]]:
 # ── render ────────────────────────────────────────────────────────────────
 
 def _pick_workflow(n_refs: int) -> int | None:
-    """The enabled image workflow with exactly ``n_refs`` image inputs (Klein preferred)."""
-    conn = get_db(settings.db_path)
-    try:
-        rows = [row_to_dict(r) for r in conn.execute(
-            "SELECT * FROM workflows WHERE kind = 'image' AND is_enabled = 1 ORDER BY id")]
-    finally:
-        conn.close()
-    fits = []
-    for wf in rows:
-        inputs = parse_dynamic_inputs(json.loads(wf["workflow_json"]))
-        if sum(1 for i in inputs if i.get("kind") == "image") == n_refs:
-            fits.append(wf)
-    fits.sort(key=lambda wf: ("klein" not in wf["name"].lower(), wf["id"]))
-    return fits[0]["id"] if fits else None
+    """The panel workflow for this many references (Settings > Workflows roles, else Auto)."""
+    from calliope.workflow_roles import resolve
+
+    return resolve({0: "panel_text", 1: "panel_refs_1", 2: "panel_refs_2"}[min(n_refs, 2)])
 
 
 def _image_node_ids(workflow_id: int) -> list[str]:

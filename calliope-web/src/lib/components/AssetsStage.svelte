@@ -39,7 +39,7 @@
 		itemReferenceTemplate,
 		locationReferenceTemplate,
 	} from '$lib/promptTemplates';
-	import { assetLibraryApi, type AssetKind } from '$lib/api';
+	import { assetLibraryApi, settings as settingsApi, type AssetKind } from '$lib/api';
 	import { toast } from '$lib/toast';
 	import { t } from '$lib/i18n.svelte';
 
@@ -294,13 +294,18 @@
 		return opts;
 	});
 
+	// Defaults come from Settings > Workflows roles (else the first workflow).
+	const rolesQuery = createQuery({ queryKey: ['workflow-roles'], queryFn: settingsApi.workflowRoles });
 	$effect(() => {
 		const list = imageWorkflows;
-		if (list.length === 0) return;
-		const first = list[0].id;
-		if (sheetWorkflowId === '') sheetWorkflowId = first;
-		if (envWorkflowId === '') envWorkflowId = first;
-		if (itemWorkflowId === '') itemWorkflowId = first;
+		if (list.length === 0 || $rolesQuery.isLoading) return;
+		const roleOf = (key: string) => {
+			const id = ($rolesQuery.data ?? []).find((r) => r.key === key)?.resolved;
+			return list.some((w) => w.id === id) ? (id as number) : list[0].id;
+		};
+		if (sheetWorkflowId === '') sheetWorkflowId = roleOf('asset_sheet');
+		if (envWorkflowId === '') envWorkflowId = roleOf('asset_location');
+		if (itemWorkflowId === '') itemWorkflowId = roleOf('asset_item');
 	});
 
 	$effect(() => {

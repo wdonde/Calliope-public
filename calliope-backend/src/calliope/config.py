@@ -186,6 +186,8 @@ class Settings(BaseSettings):
     llm_context_tokens: int = 0
     # role (AGENT_LLM_ROLES) -> LLM profile id; None/absent = use Active LLM
     agent_llm_assignments: dict[str, str | None] = Field(default_factory=dict)
+    # Workflow per job (workflow_roles.ROLES); missing = Auto.
+    workflow_assignments: dict[str, int | None] = Field(default_factory=dict)
 
     comfyui_base_url: str = "http://127.0.0.1:8188"
     # Comfy is HTTP-only (upload / prompt / history / view). No local input/output dirs.
@@ -541,6 +543,7 @@ class Settings(BaseSettings):
             "llm_chars_per_token": float(self.llm_chars_per_token),
             "llm_max_output_tokens": int(self.llm_max_output_tokens),
             "agent_llm_assignments": dict(self.agent_llm_assignments or {}),
+            "workflow_assignments": dict(self.workflow_assignments or {}),
             "comfyui_base_url": self.comfyui_base_url,
             "queue_concurrency": self.queue_concurrency,
             "queue_poll_interval_sec": self.queue_poll_interval_sec,
@@ -648,6 +651,7 @@ class Settings(BaseSettings):
             "llm_profiles": self.llm_profiles,
             "llm_active_id": self.llm_active_id,
             "agent_llm_assignments": dict(self.agent_llm_assignments or {}),
+            "workflow_assignments": dict(self.workflow_assignments or {}),
             "comfyui_base_url": self.comfyui_base_url,
             "queue_concurrency": self.queue_concurrency,
             "queue_poll_interval_sec": self.queue_poll_interval_sec,

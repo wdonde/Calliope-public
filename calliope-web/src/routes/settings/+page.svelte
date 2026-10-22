@@ -4,6 +4,7 @@
 	import ModelSelect from '$lib/components/settings/ModelSelect.svelte';
 	import SettingsNav from '$lib/components/settings/SettingsNav.svelte';
 	import WorkflowsLibrary from '$lib/components/settings/WorkflowsLibrary.svelte';
+	import WorkflowRoles from '$lib/components/WorkflowRoles.svelte';
 	import SkillsLibrary from '$lib/components/settings/SkillsLibrary.svelte';
 	import MemoryPanel from '$lib/components/settings/MemoryPanel.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
@@ -1202,6 +1203,7 @@
 						</label>
 					</section>
 				{:else if tab === 'workflows'}
+					<WorkflowRoles />
 					<WorkflowsLibrary />
 				{:else if tab === 'skills'}
 					<SkillsLibrary />
