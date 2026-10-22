@@ -20,7 +20,7 @@ from typing import Any
 from PIL import Image
 
 from calliope.agent.asset_tags import ITEM_CATEGORIES, name_tags, normalize_category, tags_json
-from calliope.agent.character_identity import character_tags, complete_sheet, identity_tags
+from calliope.agent.character_identity import character_tags, complete_sheet, identity_tags, story_fields
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
     character_image_prompt,
@@ -379,10 +379,12 @@ async def create_asset(project_id: int, *, kind: str, name: str, prompt: str = "
     try:
         if kind == "character":
             seed = {"name": name, "appearance": look["appearance"], "role": "", "age": "", "personality": ""}
+            alias, role = story_fields(look["appearance"])
             cur = conn.execute(
-                "INSERT INTO characters (project_id, name, appearance, consistency_prompt, tags, source_images) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (project_id, name, look["appearance"], character_sheet_prompt(seed), tags, json.dumps(images)),
+                "INSERT INTO characters (project_id, name, appearance, consistency_prompt, tags, source_images, alias, role) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (project_id, name, look["appearance"], character_sheet_prompt(seed), tags, json.dumps(images),
+                 alias or None, role or None),
             )
         elif kind == "location":
             seed = {"name": name, "description": look["description"]}
@@ -437,6 +439,8 @@ async def create_library_asset(*, kind: str, name: str, prompt: str = "", image_
     consistency = (character_sheet_prompt(seed) if kind == "character"
                    else location_reference_prompt(seed) if kind == "location" else item_reference_prompt(seed))
     data: dict[str, Any] = {field: look[field], "consistency_prompt": consistency, "source_images": images}
+    if kind == "character":
+        data["alias"], data["role"] = story_fields(look[field])
     entity = {"id": lib_id, "name": name, **data}
     job = enqueue_from_images(scratch, kind, entity, {"library_asset_id": lib_id}) if generate else None
     if job:

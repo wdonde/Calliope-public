@@ -201,3 +201,33 @@ def character_tags(appearance: str | None, tags: list[str] | None = None) -> lis
         return None
     links = [t for t in tags or [] if t.startswith("library:")]
     return identity_tags(identity_text(appearance)) + links
+
+
+def story_fields(appearance: str | None) -> tuple[str, str]:
+    """(alias, role) as written in a sheet; empty when missing or 'none'."""
+    known = fields(identity_text(appearance))
+    def clean(v: str) -> str:
+        return "" if v.strip().lower() in ("none", "-", "n/a", "unknown") else v.strip()
+    return clean(known.get("Alias", "")), clean(known.get("Role", ""))
+
+
+def set_story_fields(appearance: str, alias: str, role: str) -> str:
+    """The sheet with its Alias/Role lines replaced by these values (removed when empty)."""
+    if not is_sheet(appearance):
+        return appearance
+    lines = [line for line in appearance.splitlines()
+             if line.split(":", 1)[0].strip() not in STORY_ONLY]
+    at = next((i + 1 for i, line in enumerate(lines) if line.strip().lower().startswith("name:")), 1)
+    extra = ([f"Alias: {alias.strip()}"] if alias.strip() else []) + ([f"Role: {role.strip()}"] if role.strip() else [])
+    return "\n".join(lines[:at] + extra + lines[at:])
+
+
+def sync_story_fields(appearance: str | None, alias: str | None, role: str | None) -> tuple[str, str, str]:
+    """Alias and Role are kept in their own fields and linked into the sheet.
+    A filled field wins over whatever a new sheet says; an empty field takes
+    the sheet's value (newly suggested). Returns (appearance, alias, role)."""
+    text = appearance or ""
+    sheet_alias, sheet_role = story_fields(text)
+    alias = (alias or "").strip() or sheet_alias
+    role = (role or "").strip() or sheet_role
+    return set_story_fields(text, alias, role), alias, role

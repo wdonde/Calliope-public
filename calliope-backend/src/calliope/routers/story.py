@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from calliope.activity import tracked
 from calliope.agent.idea_guard import LONG_IDEA_CHARS, LongSourceText, refuse_long_idea
 from calliope.agent.asset_create import sheet_text
-from calliope.agent.character_identity import character_tags, complete_sheet
+from calliope.agent.character_identity import character_tags, complete_sheet, sync_story_fields
 from calliope.agent.asset_tags import name_tags, normalize_category, tags_json
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
@@ -353,6 +353,7 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                         if isinstance(look, dict) and look:
                             look = {**look, "Role": look.get("Role") or entity.get("role") or ""}
                             appearance = complete_sheet(sheet_text(entity.get("name", ""), look), entity.get("name", ""))
+                            appearance, _, _ = sync_story_fields(appearance, None, entity.get("role"))
                         else:
                             appearance = entity.get("appearance", "") or ""
                         row_seed = {
@@ -369,14 +370,15 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
                         conn.execute(
                             """
                             INSERT INTO characters
-                            (project_id, name, role, age, appearance, personality, consistency_prompt, tags)
-                            VALUES (:project_id, :name, :role, :age, :appearance, :personality, :consistency_prompt, :tags)
+                            (project_id, name, role, age, appearance, personality, consistency_prompt, tags, alias)
+                            VALUES (:project_id, :name, :role, :age, :appearance, :personality, :consistency_prompt, :tags, :alias)
                             """,
                             {
                                 "project_id": project_id,
                                 **row_seed,
                                 "consistency_prompt": character_sheet_prompt(row_seed),
                                 "tags": tags,
+                                "alias": sync_story_fields(appearance, None, None)[1] or None,
                             },
                         )
                         seeded["characters"] += 1
@@ -633,6 +635,10 @@ async def create_character(project_id: int, payload: CharacterCreate) -> dict[st
     conn = get_db(settings.db_path)
     try:
         _require_project(conn, project_id)
+        # Alias/Role fields and the sheet's lines are kept in step.
+        appearance, alias, role = sync_story_fields(payload.appearance, payload.alias, payload.role)
+        payload = payload.model_copy(update={"appearance": appearance or payload.appearance,
+                                             "alias": alias or None, "role": role or payload.role})
         consistency = payload.consistency_prompt or character_sheet_prompt(
             {
                 "name": payload.name,
@@ -645,8 +651,8 @@ async def create_character(project_id: int, payload: CharacterCreate) -> dict[st
         cur = conn.execute(
             """
             INSERT INTO characters
-            (project_id, name, role, age, appearance, personality, consistency_prompt, tags)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (project_id, name, role, age, appearance, personality, consistency_prompt, tags, alias)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
@@ -659,6 +665,7 @@ async def create_character(project_id: int, payload: CharacterCreate) -> dict[st
                 json.dumps(character_tags(payload.appearance))
                 if character_tags(payload.appearance) is not None
                 else tags_json(name_tags(payload.name) + (payload.tags or [])),
+                payload.alias,
             ),
         )
         _touch_project(conn, project_id)
@@ -682,6 +689,12 @@ async def update_character(
         if not existing:
             raise HTTPException(status_code=404, detail="Character not found")
         data = _asset_fields({k: v for k, v in payload.model_dump().items() if v is not None})
+        if {"appearance", "alias", "role"} & set(data):
+            appearance, alias, role = sync_story_fields(
+                data.get("appearance", existing["appearance"]),
+                data.get("alias", existing["alias"]), data.get("role", existing["role"]))
+            if (existing["appearance"] or data.get("appearance") or "").lstrip().startswith("CHARACTER INFORMATION"):
+                data.update({"appearance": appearance, "alias": alias or None, "role": role or None})
         # A character with a sheet takes its tags from it (plus its library link).
         appearance = data.get("appearance", existing["appearance"])
         derived = character_tags(appearance, json.loads(existing["tags"] or "[]"))

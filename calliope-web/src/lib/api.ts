@@ -251,11 +251,16 @@ export const assetLibraryApi = {
 			method: 'POST',
 			body: JSON.stringify(payload),
 		}),
-	describeLibrary: (assetId: number, notes = '') =>
-		api<{ field: string; text: string; tags: string[]; category: string | null }>(
-			`/api/asset-library/${assetId}/describe`,
-			{ method: 'POST', body: JSON.stringify({ notes }) },
-		),
+	describeLibrary: (assetId: number, keep: { notes?: string; alias?: string; role?: string } = {}) =>
+		api<{
+			field: string;
+			text: string;
+			tags: string[];
+			category: string | null;
+			/** The alias/role kept in the new sheet (filled fields win, empty ones take the suggestion). */
+			alias: string | null;
+			role: string | null;
+		}>(`/api/asset-library/${assetId}/describe`, { method: 'POST', body: JSON.stringify(keep) }),
 	describeProject: (projectId: number, kind: AssetKind, entityId: number) =>
 		api<Record<string, unknown>>(`/api/projects/${projectId}/${kind}/${entityId}/describe`, { method: 'POST' }),
 	matches: (projectId: number) =>

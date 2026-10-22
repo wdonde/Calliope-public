@@ -238,7 +238,7 @@ def test_library_keeps_only_the_identity_and_projects_find_and_use_it(client):
         "personality": "grim, loyal"}).json()
     lib = client.post(f"/api/projects/{a}/character/{c['id']}/to-library").json()
     assert lib["data"]["appearance"].endswith("scar across left cheek") and "OUTFIT" not in lib["data"]["appearance"]
-    assert "personality" not in lib["data"] and "role" not in lib["data"]
+    assert "personality" not in lib["data"] and lib["data"]["role"] == "Protagonist"  # role: own field, as typed
     assert lib["tags"] == ["alias:Ripper Eddy", "role:protagonist", "gender:male", "age:45", "build:muscular",
                            "hair:short, graying, military cut", "mark:prominent scar across left cheek"]
 
@@ -444,3 +444,39 @@ def test_sheet_body_alias_role_rules(client):
     c = client.patch(f"/api/projects/{pid}/characters/{c['id']}",
                      json={"appearance": sheet.replace("Build: curvy", "Build: athletic")}).json()
     assert "build:athletic" in c["tags"]
+
+
+def test_alias_and_role_are_own_fields_linked_into_the_sheet(client, monkeypatch):
+    import calliope.agent.asset_create as ac
+
+    async def fake_llm(messages, temperature=0.4, role=None):
+        return {"look": {"Alias": "Kao-chan", "Role": "villain", "Age": "28", "Hair": "dark blue"}, "tags": []}
+
+    monkeypatch.setattr(ac, "generate_structured", fake_llm)
+    pid = client.post("/api/projects", json={"title": "P"}).json()["id"]
+    sheet = "CHARACTER INFORMATION\nName: Kaoru\nAge: 28\nHair: black"
+    c = client.post(f"/api/projects/{pid}/characters", json={"name": "Kaoru", "appearance": sheet,
+                                                            "alias": "Toyma", "role": "protagonist"}).json()
+    assert c["alias"] == "Toyma" and c["role"] == "protagonist"
+    assert "Name: Kaoru\nAlias: Toyma\nRole: protagonist\n" in c["appearance"]
+    lib = client.post(f"/api/projects/{pid}/character/{c['id']}/to-library").json()
+    assert (lib["data"]["alias"], lib["data"]["role"]) == ("Toyma", "protagonist")
+
+    # Generate keeps filled fields (the model's alias/role suggestions are ignored)...
+    d = client.post(f"/api/asset-library/{lib['id']}/describe", json={}).json()
+    assert (d["alias"], d["role"]) == ("Toyma", "protagonist") and "Alias: Toyma" in d["text"]
+    # ...and an empty field takes the new suggestion.
+    d2 = client.post(f"/api/asset-library/{lib['id']}/describe", json={"alias": "", "role": "protagonist"}).json()
+    assert d2["alias"] == "Kao-chan" and "Alias: Kao-chan" in d2["text"]
+
+    # Editing the fields rewrites the sheet's lines; the image prompt never shows them.
+    out = client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"alias": "Toyma, Kao", "role": "mentor",
+                                                                      "appearance": d["text"], "consistency_prompt": ""}}).json()
+    assert "Alias: Toyma, Kao\nRole: mentor" in out["data"]["appearance"]
+    assert "alias:Kao" in out["tags"] and "role:mentor" in out["tags"]
+    assert "Alias" not in out["data"]["consistency_prompt"] and "mentor" not in out["data"]["consistency_prompt"]
+
+    # A project update of the sheet keeps the character's own alias/role.
+    c = client.patch(f"/api/projects/{pid}/characters/{c['id']}",
+                     json={"appearance": "CHARACTER INFORMATION\nName: Kaoru\nAlias: X\nRole: Y\nAge: 30"}).json()
+    assert "Alias: Toyma\nRole: protagonist\nAge: 30" in c["appearance"]

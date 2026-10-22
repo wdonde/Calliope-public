@@ -81,8 +81,6 @@
 	}
 </script>
 
-<div class="queue"><RenderQueue /></div>
-
 <div class="toolbar">
 	<div class="kinds">
 		{#each KINDS as k (k.id)}
@@ -94,6 +92,7 @@
 		<button type="button" class="tag-filter" onclick={() => (activeTag = null)}>{activeTag} ×</button>
 	{/if}
 	<Button size="sm" variant="primary" onclick={() => (newOpen = true)}>{t('assets.new.asset')}</Button>
+	<span class="queue-end"><RenderQueue /></span>
 </div>
 
 <LibraryAssetEditor bind:open={editOpen} asset={editing} onsaved={refresh} />
@@ -181,15 +180,17 @@
 />
 
 <style>
-	.queue {
-		margin-bottom: 16px;
-	}
 	.toolbar {
 		display: flex;
 		gap: 10px;
 		align-items: center;
 		flex-wrap: wrap;
 		margin-bottom: 16px;
+	}
+	.queue-end {
+		margin-left: auto;
+		/* Some room to the edge of the row. */
+		margin-right: 16px;
 	}
 	.toolbar input {
 		flex: 1;

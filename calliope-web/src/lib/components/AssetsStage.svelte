@@ -758,6 +758,7 @@
 	<Button size="sm" variant="secondary" loading={suggesting} onclick={suggestTags}>{t('assets.suggestTags')}</Button>
 	<Button size="sm" variant="secondary" onclick={() => (pickerOpen = true)}>{t('assets.fromLibrary')}</Button>
 	<Button size="sm" variant="primary" onclick={() => (newOpen = true)}>{t(`assets.new.${KIND_OF_TAB[tab]}`)}</Button>
+	<span class="queue-end"><RenderQueue {projectId} /></span>
 </div>
 
 <NewAssetDialog
@@ -769,8 +770,6 @@
 		client.invalidateQueries({ queryKey: ['jobs'] });
 	}}
 />
-
-<div class="matches-wrap"><RenderQueue {projectId} /></div>
 
 {#if tab === 'characters'}
 	<div class="matches-wrap"><LibraryMatches {projectId} /></div>
@@ -1627,6 +1626,11 @@
 		align-items: center;
 		flex-wrap: wrap;
 		margin: 0 0 12px;
+	}
+	.queue-end {
+		margin-left: auto;
+		/* Some room to the edge of the row. */
+		margin-right: 16px;
 	}
 	.asset-toolbar input {
 		flex: 1;

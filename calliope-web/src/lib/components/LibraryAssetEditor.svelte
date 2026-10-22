@@ -31,7 +31,12 @@
 	const textFields = $derived(
 		// Library characters hold only who they are; outfit, personality and role are per project.
 		isChar
-			? [{ key: 'appearance', label: t('assets.edit.identity'), rows: 12 }]
+			? [
+					// Own fields, linked into the sheet's Alias/Role lines; kept when the look is regenerated.
+					{ key: 'alias', label: t('assets.edit.alias'), rows: 1 },
+					{ key: 'role', label: t('assets.edit.role'), rows: 1 },
+					{ key: 'appearance', label: t('assets.edit.identity'), rows: 12 },
+				]
 			: [{ key: 'description', label: t('assets.description'), rows: 4 }],
 	);
 
@@ -45,7 +50,7 @@
 		tags = asset.tags.join(', ');
 		const d = asset.data as Record<string, unknown>;
 		fields = Object.fromEntries(
-			['appearance', 'role', 'age', 'personality', 'description', 'consistency_prompt'].map((k) => [k, String(d[k] ?? '')]),
+			['alias', 'appearance', 'role', 'age', 'personality', 'description', 'consistency_prompt'].map((k) => [k, String(d[k] ?? '')]),
 		);
 		pics = ((d.source_images as string[] | undefined) ?? []).map((path) => ({ src: assetUrl(path) ?? '', path }));
 		savedState = snapshot();
@@ -73,8 +78,16 @@
 				assetLibraryApi.update(asset!.id, { source_images: paths }),
 			);
 			// The current text is not sent as notes: notes win over pictures and would keep old mistakes.
-			const r = await assetLibraryApi.describeLibrary(asset.id);
+			const r = await assetLibraryApi.describeLibrary(
+				asset.id,
+				isChar ? { alias: fields.alias ?? '', role: fields.role ?? '' } : {},
+			);
 			fields[lookKey] = r.text;
+			if (isChar) {
+				// Filled fields stay; empty ones take what the new sheet suggests.
+				fields.alias = r.alias ?? fields.alias ?? '';
+				fields.role = r.role ?? fields.role ?? '';
+			}
 			if (isChar) {
 				tags = r.tags.join(', ');
 				return;

@@ -32,6 +32,8 @@ from calliope.agent.character_identity import (
     IDENTITY_TAGS,
     character_tags,
     complete_sheet,
+    story_fields,
+    sync_story_fields,
     identity_tags,
     identity_text,
     is_sheet,
@@ -50,7 +52,7 @@ TABLES = {"character": "characters", "location": "locations", "item": "items"}
 FIELDS = {
     # Characters keep only their identity (CHARACTER INFORMATION); outfit,
     # personality and role belong to each project (role travels as a tag).
-    "character": ("appearance", "consistency_prompt"),
+    "character": ("alias", "role", "appearance", "consistency_prompt"),
     "location": ("description", "consistency_prompt"),
     "item": ("description", "consistency_prompt"),
 }
@@ -78,6 +80,9 @@ class AddToProject(BaseModel):
 
 class DescribeRequest(BaseModel):
     notes: str = ""  # extra hints, any language
+    # The dialog's current Alias/Role: kept in the new sheet unless empty.
+    alias: str | None = None
+    role: str | None = None
 
 
 class NewAsset(BaseModel):
@@ -173,6 +178,7 @@ async def save_to_library(project_id: int, kind: Kind, entity_id: int) -> dict[s
             # Older characters kept alias/role as tags: they move into the sheet.
             aliases = [t.split(":", 1)[1] for t in tags if t.lower().startswith("alias:")]
             e["appearance"] = complete_sheet(identity_text(e.get("appearance")), e["name"], e.get("role"), aliases)
+            e["appearance"], e["alias"], e["role"] = sync_story_fields(e["appearance"], e.get("alias"), e.get("role"))
             e["consistency_prompt"] = character_sheet_prompt({"name": e["name"], "appearance": e["appearance"]})
             tags = character_tags(e["appearance"]) or tags
         cur = conn.execute(
@@ -246,8 +252,9 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
             if key in FIELDS[asset["kind"]]:
                 data[key] = value
         if asset["kind"] == "character":
-            # Per-project fields from older library entries do not belong here.
-            for key in ("role", "age", "personality"):
+            # Per-project fields from older library entries do not belong here
+            # (role is a library field: it is linked into the sheet).
+            for key in ("age", "personality"):
                 data.pop(key, None)
         if asset["kind"] == "character" and "appearance" in (fields.get("data") or {}):
             # Alias/role of older entries lived in tags; they move into the sheet.
@@ -255,6 +262,14 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
                 identity_text(data["appearance"]), sets.get("name") or asset["name"],
                 role=next((t[5:] for t in asset["tags"] if t.lower().startswith("role:")), None),
                 aliases=[t[6:] for t in asset["tags"] if t.lower().startswith("alias:")])
+        if asset["kind"] == "character" and ({"appearance", "alias", "role"} & set(fields.get("data") or {})):
+            # Alias/Role live in their own fields; the sheet's lines follow them.
+            data["appearance"], data["alias"], data["role"] = sync_story_fields(
+                data.get("appearance"), data.get("alias"), data.get("role"))
+            derived = character_tags(data["appearance"])
+            if derived is not None:
+                sets["tags"] = json.dumps(derived, ensure_ascii=False)
+        if asset["kind"] == "character" and "appearance" in (fields.get("data") or {}):
             if not (data.get("consistency_prompt") or "").strip():
                 data["consistency_prompt"] = character_sheet_prompt({"name": sets.get("name") or asset["name"],
                                                                      "appearance": data["appearance"]})
@@ -406,9 +421,14 @@ async def describe_library_asset(asset_id: int, payload: DescribeRequest | None 
         look[field] = complete_sheet(look[field], a["name"],
                                      aliases=[t[6:] for t in a["tags"] if t.lower().startswith("alias:")],
                                      role=next((t[5:] for t in a["tags"] if t.lower().startswith("role:")), None))
+    alias = role = None
+    if a["kind"] == "character":
+        keep_alias = payload.alias if payload and payload.alias is not None else a["data"].get("alias")
+        keep_role = payload.role if payload and payload.role is not None else a["data"].get("role")
+        look[field], alias, role = sync_story_fields(look[field], keep_alias, keep_role)
     tags = character_tags(look[field]) if a["kind"] == "character" else list(look["tags"])
     tags = tags if tags is not None else list(look["tags"])
-    return {"field": field, "text": look[field], "tags": tags, "category": look["category"]}
+    return {"field": field, "text": look[field], "tags": tags, "category": look["category"], "alias": alias, "role": role}
 
 
 @router.post("/projects/{project_id}/{kind}/{entity_id}/describe")
@@ -438,11 +458,14 @@ async def describe_project_asset(project_id: int, kind: Kind, entity_id: int) ->
     if kind == "character":
         text = complete_sheet(text, e["name"], e.get("role"),
                               [t[6:] for t in e.get("tags") or [] if t.lower().startswith("alias:")])
+        text, e["alias"], e["role"] = sync_story_fields(text, e.get("alias"), e.get("role"))
     derived = character_tags(text, e.get("tags")) if kind == "character" else None
     sets = {field: text, "tags": json.dumps(derived, ensure_ascii=False) if derived is not None
             else tags_json(merge_tags(e.get("tags") or [], list(look["tags"])), e["name"])}
     if kind == "item" and not e.get("category") and look["category"]:
         sets["category"] = look["category"]
+    if kind == "character":
+        sets["alias"], sets["role"] = e.get("alias") or None, e.get("role") or None
     conn = get_db(settings.db_path)
     try:
         conn.execute(f"UPDATE {table} SET {', '.join(f'{k} = :{k}' for k in sets)} WHERE id = :id",
@@ -508,6 +531,8 @@ async def apply_library_identity(asset_id: int, project_id: int, character_id: i
     if not outfit and current and not current.startswith(IDENTITY):
         outfit = await outfit_from_text(c["name"], current)  # prose from Draft Storyline
     appearance = f"{identity.strip()}\n\n{outfit}".strip() if outfit else identity.strip()
+    # The project character keeps its own alias/role; empty ones take the library's.
+    appearance, alias, role = sync_story_fields(appearance, c.get("alias"), c.get("role"))
 
     own_prompt = (c.get("consistency_prompt") or "").strip()
     edited = bool(own_prompt) and own_prompt != character_sheet_prompt(c).strip()
@@ -525,8 +550,9 @@ async def apply_library_identity(asset_id: int, project_id: int, character_id: i
     try:
         conn.execute(
             "UPDATE characters SET appearance = ?, tags = ?, source_images = ?, consistency_prompt = ?, "
-            "library_synced_at = ? WHERE id = ?",
-            (appearance, tags, json.dumps(list(dict.fromkeys(pictures))), prompt, a["updated_at"], character_id),
+            "library_synced_at = ?, alias = ?, role = ? WHERE id = ?",
+            (appearance, tags, json.dumps(list(dict.fromkeys(pictures))), prompt, a["updated_at"], alias, role,
+             character_id),
         )
         conn.commit()
         out = row_to_dict(conn.execute("SELECT * FROM characters WHERE id = ?", (character_id,)).fetchone())

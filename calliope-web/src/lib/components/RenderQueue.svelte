@@ -10,7 +10,7 @@
 	import { assetUrl, jobsApi, type QueueJob, type QueueOverview } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
 	import { toast } from '$lib/toast';
-	import Card from '$lib/components/ui/Card.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
 
 	interface Props {
 		projectId?: number;
@@ -30,7 +30,8 @@
 	);
 	const data = $derived($queueQuery.data);
 	const active = $derived(Boolean(data && (data.running.length || data.queued.length)));
-	let showRecent = $state(false);
+	let open = $state(false);
+	const count = $derived(data ? data.running.length + data.queued.length : 0);
 
 	// Whatever finished: refresh what shows the results (cards, library, panels).
 	let lastDone = $state<number | null>(null);
@@ -68,77 +69,92 @@
 	}
 </script>
 
-{#if data}
-	<Card>
-		<div class="head">
-			<strong>{t('queue.title')}</strong>
-			<span class="summary">
-				{#if active}
-					{t('queue.summary', { running: data.running.length, queued: data.queued.length })}
-				{:else}
-					{t('queue.idle')}
-				{/if}
-				{#if projectId != null && (data.elsewhere.running || data.elsewhere.queued)}
-					· {t('queue.elsewhere', { n: data.elsewhere.running + data.elsewhere.queued })}
-				{/if}
-			</span>
-			{#if data.recent.length}
-				<button type="button" class="link" onclick={() => (showRecent = !showRecent)}>
-					{showRecent ? t('queue.hideRecent') : t('queue.showRecent', { n: data.recent.length })}
-				</button>
+<!-- A compact button in the filter row; the details open in a dialog. -->
+<button type="button" class="queue-btn" class:active={count > 0} title={t('queue.title')} onclick={() => (open = true)}>
+	{#if data?.running.length}<span class="dot"></span>{/if}
+	{t('queue.button', { n: count })}
+</button>
+
+<Modal bind:open title={t('queue.title')} size="lg" onclose={() => (open = false)}>
+	{#if data}
+		<p class="summary">
+			{#if active}
+				{t('queue.summary', { running: data.running.length, queued: data.queued.length })}
+			{:else}
+				{t('queue.idle')}
 			{/if}
-		</div>
-		{#if active || showRecent}
+			{#if projectId != null && (data.elsewhere.running || data.elsewhere.queued)}
+				· {t('queue.elsewhere', { n: data.elsewhere.running + data.elsewhere.queued })}
+			{/if}
+		</p>
+		<ul>
+			{#each data.running as j (j.id)}
+				<li class="running">
+					<span class="dot"></span>
+					<span class="label">{j.label}</span>
+					{#if projectId == null && j.project}<span class="muted">{j.project}</span>{/if}
+					<span class="muted">{t('queue.rendering')} {since(j.started_at)}</span>
+					<button type="button" class="link" onclick={() => cancel(j)}>{t('common.cancel')}</button>
+				</li>
+			{/each}
+			{#each data.queued as j (j.id)}
+				<li>
+					<span class="pos">{j.position}</span>
+					<span class="label">{j.label}</span>
+					{#if projectId == null && j.project}<span class="muted">{j.project}</span>{/if}
+					<span class="muted">{t('queue.waiting', { time: since(j.created_at) })}</span>
+					<button type="button" class="link" onclick={() => cancel(j)}>{t('common.cancel')}</button>
+				</li>
+			{/each}
+		</ul>
+		{#if data.recent.length}
+			<h3 class="sub">{t('queue.recentTitle')}</h3>
 			<ul>
-				{#each data.running as j (j.id)}
-					<li class="running">
-						<span class="dot"></span>
+				{#each data.recent as j (j.id)}
+					<li class="recent {j.status}">
+						{#if j.output && j.status === 'done'}
+							<a href={assetUrl(j.output)} target="_blank" rel="noopener"><img src={assetUrl(j.output)} alt="" /></a>
+						{:else}
+							<span class="state">{j.status === 'failed' ? '✕' : '–'}</span>
+						{/if}
 						<span class="label">{j.label}</span>
 						{#if projectId == null && j.project}<span class="muted">{j.project}</span>{/if}
-						<span class="muted">{t('queue.rendering')} {since(j.started_at)}</span>
-						<button type="button" class="link" onclick={() => cancel(j)}>{t('common.cancel')}</button>
+						<span class="muted" title={j.error ?? ''}>
+							{j.status === 'done' ? t('queue.done', { time: since(j.completed_at) }) : j.status === 'failed' ? t('queue.failed') : t('queue.cancelled')}
+						</span>
 					</li>
 				{/each}
-				{#each data.queued as j (j.id)}
-					<li>
-						<span class="pos">{j.position}</span>
-						<span class="label">{j.label}</span>
-						{#if projectId == null && j.project}<span class="muted">{j.project}</span>{/if}
-						<span class="muted">{t('queue.waiting', { time: since(j.created_at) })}</span>
-						<button type="button" class="link" onclick={() => cancel(j)}>{t('common.cancel')}</button>
-					</li>
-				{/each}
-				{#if showRecent}
-					{#each data.recent as j (j.id)}
-						<li class="recent {j.status}">
-							{#if j.output && j.status === 'done'}
-								<a href={assetUrl(j.output)} target="_blank" rel="noopener"><img src={assetUrl(j.output)} alt="" /></a>
-							{:else}
-								<span class="state">{j.status === 'failed' ? '✕' : '–'}</span>
-							{/if}
-							<span class="label">{j.label}</span>
-							{#if projectId == null && j.project}<span class="muted">{j.project}</span>{/if}
-							<span class="muted" title={j.error ?? ''}>
-								{j.status === 'done' ? t('queue.done', { time: since(j.completed_at) }) : j.status === 'failed' ? t('queue.failed') : t('queue.cancelled')}
-							</span>
-						</li>
-					{/each}
-				{/if}
 			</ul>
 		{/if}
-	</Card>
-{/if}
+	{/if}
+</Modal>
 
 <style>
-	.head {
-		display: flex;
-		gap: 12px;
-		align-items: baseline;
-		flex-wrap: wrap;
+	.queue-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		border: 1px solid var(--border);
+		background: transparent;
+		color: var(--text-secondary);
+		border-radius: 999px;
+		padding: 4px 12px;
+		cursor: pointer;
+		font-size: 13px;
+	}
+	.queue-btn.active {
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 	.summary {
 		color: var(--text-secondary);
 		font-size: 13px;
+		margin: 0 0 8px;
+	}
+	.sub {
+		font-size: 13px;
+		margin: 16px 0 4px;
+		color: var(--text-secondary);
 	}
 	ul {
 		list-style: none;
@@ -207,9 +223,6 @@
 		color: var(--accent);
 		cursor: pointer;
 		font-size: 12px;
-		margin-left: auto;
-	}
-	.head .link {
 		margin-left: auto;
 	}
 </style>

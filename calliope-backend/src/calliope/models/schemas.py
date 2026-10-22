@@ -116,6 +116,7 @@ class CharacterCreate(BaseModel):
     personality: str | None = None
     consistency_prompt: str | None = None
     tags: list[str] | None = None
+    alias: str | None = None
 
 
 class CharacterUpdate(BaseModel):
@@ -128,6 +129,7 @@ class CharacterUpdate(BaseModel):
     portrait_path: str | None = None
     sheet_path: str | None = None
     tags: list[str] | None = None
+    alias: str | None = None
 
 
 class LocationCreate(BaseModel):
