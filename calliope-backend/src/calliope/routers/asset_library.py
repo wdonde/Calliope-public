@@ -26,6 +26,8 @@ from calliope.agent.asset_create import (
     project_context,
 )
 from calliope.agent.asset_tags import merge_tags, normalize_category, suggest_tags, tags_json
+from calliope.agent.character_identity import IDENTITY_TAGS, apply_identity, identity_tags, identity_text, match
+from calliope.agent.prompts import character_sheet_prompt
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
 
@@ -35,7 +37,9 @@ Kind = Literal["character", "location", "item"]
 TABLES = {"character": "characters", "location": "locations", "item": "items"}
 # Text fields copied with the asset, and the image columns that travel along.
 FIELDS = {
-    "character": ("role", "age", "appearance", "personality", "consistency_prompt"),
+    # Characters keep only their identity (CHARACTER INFORMATION); outfit,
+    # personality and role belong to each project (role travels as a tag).
+    "character": ("appearance", "consistency_prompt"),
     "location": ("description", "consistency_prompt"),
     "item": ("description", "consistency_prompt"),
 }
@@ -112,6 +116,15 @@ def _add_projects(assets: list[dict[str, Any]]) -> None:
         a["used_in"] = [{"id": p, "title": titles[p]} for p in sorted(used.get(a["id"], ())) if p in titles]
 
 
+def _identity_tags_for(tags: list[str], identity: str, role: str | None = None) -> list[str]:
+    """Tags = alias/role/other user tags + identity tags freshly read from the sheet."""
+    keys = set(IDENTITY_TAGS.values())
+    kept = [t for t in tags if t.split(":", 1)[0].lower() not in keys and not t.lower().startswith("library:")]
+    if role and not any(t.lower().startswith("role:") for t in kept):
+        kept.append(f"role:{role.strip().lower()}")
+    return kept + identity_tags(identity)
+
+
 def _matches(asset: dict[str, Any], q: str) -> bool:
     text = " ".join([asset["name"], asset.get("category") or "", *asset["tags"],
                      *(str(v) for v in asset["data"].values() if isinstance(v, str))]).lower()
@@ -145,9 +158,14 @@ async def save_to_library(project_id: int, kind: Kind, entity_id: int) -> dict[s
         if not row:
             raise HTTPException(status_code=404, detail="Asset not found")
         e = row_to_dict(row)
+        tags = list(e.get("tags") or [])
+        if kind == "character":
+            e["appearance"] = identity_text(e.get("appearance"))
+            e["consistency_prompt"] = character_sheet_prompt({"name": e["name"], "appearance": e["appearance"]})
+            tags = _identity_tags_for(tags, e["appearance"], e.get("role"))
         cur = conn.execute(
             "INSERT INTO library_assets (kind, name, category, tags, source_project_id) VALUES (?, ?, ?, ?, ?)",
-            (kind, e["name"], e.get("category"), tags_json(e.get("tags")), project_id),
+            (kind, e["name"], e.get("category"), tags_json(tags, e["name"]), project_id),
         )
         lib_id = cur.lastrowid
         data = {f: e.get(f) for f in FIELDS[kind]}
@@ -185,6 +203,8 @@ async def add_to_project(asset_id: int, payload: AddToProject) -> dict[str, Any]
             [c for c in (_copy(p, dest / "source") for p in a["data"].get("source_images") or []) if c])
         if kind == "item":
             values["category"] = a.get("category")
+        if kind == "character":
+            values["role"] = next((t.split(":", 1)[1] for t in a["tags"] if t.lower().startswith("role:")), None)
         cols = ", ".join(values)
         cur = conn.execute(f"INSERT INTO {TABLES[kind]} ({cols}) VALUES ({', '.join(':' + c for c in values)})", values)
         conn.commit()
@@ -213,12 +233,23 @@ async def update_library_asset(asset_id: int, payload: LibraryUpdate) -> dict[st
         for key, value in (fields.get("data") or {}).items():
             if key in FIELDS[asset["kind"]]:
                 data[key] = value
+        if asset["kind"] == "character":
+            # Per-project fields from older library entries do not belong here.
+            for key in ("role", "age", "personality"):
+                data.pop(key, None)
+        if asset["kind"] == "character" and "appearance" in (fields.get("data") or {}):
+            data["appearance"] = identity_text(data["appearance"])
+            if not (data.get("consistency_prompt") or "").strip():
+                data["consistency_prompt"] = character_sheet_prompt({"name": sets.get("name") or asset["name"],
+                                                                     "appearance": data["appearance"]})
+            base = json.loads(sets["tags"]) if "tags" in sets else asset["tags"]
+            sets["tags"] = tags_json(_identity_tags_for(base, data["appearance"]), sets.get("name") or asset["name"])
         if "source_images" in fields:
             _check_upload_paths(fields["source_images"] or [])
             keep = _library_dir(asset_id) / "source"
             data["source_images"] = [c for c in (p if Path(p).parent == keep else _copy(p, keep)
                                                  for p in fields["source_images"] or []) if c]
-        if "data" in fields or "source_images" in fields:
+        if "data" in fields or "source_images" in fields or asset["kind"] == "character":
             sets["data_json"] = json.dumps(data, ensure_ascii=False)
         if sets:
             cols = ", ".join(f"{k} = :{k}" for k in sets)
@@ -346,8 +377,10 @@ async def describe_library_asset(asset_id: int, payload: DescribeRequest | None 
     known = a["data"].get(field) or ""
     look = await describe(a["kind"], a["name"], (payload.notes if payload else "") or "",
                           [p for p in a["data"].get("source_images") or [] if Path(p).is_file()],
-                          context=f"{project_context(a.get('source_project_id'))}\nCurrent look: {known}".strip())
-    return {"field": field, "text": look[field], "tags": look["tags"], "category": look["category"]}
+                          context=f"{project_context(a.get('source_project_id'))}\nCurrent look: {known}".strip(),
+                          identity_only=a["kind"] == "character")
+    tags = list(look["tags"]) + (identity_tags(look[field]) if a["kind"] == "character" else [])
+    return {"field": field, "text": look[field], "tags": tags, "category": look["category"]}
 
 
 @router.post("/projects/{project_id}/{kind}/{entity_id}/describe")
@@ -375,5 +408,61 @@ async def describe_project_asset(project_id: int, kind: Kind, entity_id: int) ->
                      {**sets, "id": entity_id})
         conn.commit()
         return row_to_dict(conn.execute(f"SELECT * FROM {table} WHERE id = ?", (entity_id,)).fetchone())
+    finally:
+        conn.close()
+
+
+@router.get("/projects/{project_id}/library-matches")
+async def library_matches(project_id: int) -> list[dict[str, Any]]:
+    """For each project character, the library characters it may be (best first)."""
+    conn = get_db(settings.db_path)
+    try:
+        chars = [row_to_dict(r) for r in conn.execute("SELECT * FROM characters WHERE project_id = ?", (project_id,))]
+        lib = [_out(r) for r in conn.execute("SELECT * FROM library_assets WHERE kind = 'character'")]
+    finally:
+        conn.close()
+    out = []
+    for c in chars:
+        linked = {t[8:] for t in c.get("tags") or [] if t.startswith("library:")}
+        found = []
+        for a in lib:
+            score, why = match(c, a)
+            if score >= 3:
+                found.append({"asset_id": a["id"], "name": a["name"], "score": score, "why": why,
+                              "image_path": a["image_path"], "linked": str(a["id"]) in linked})
+        if found:
+            found.sort(key=lambda m: -m["score"])
+            out.append({"character_id": c["id"], "character_name": c["name"], "matches": found[:3]})
+    return out
+
+
+@router.post("/asset-library/{asset_id}/apply/{project_id}/{character_id}")
+async def apply_library_identity(asset_id: int, project_id: int, character_id: int) -> dict[str, Any]:
+    """Give a project character the library identity: its CHARACTER INFORMATION is
+    replaced (the project's outfit stays), the library pictures become its
+    reference pictures, and alias/identity tags join its tags."""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM library_assets WHERE id = ? AND kind = 'character'", (asset_id,)).fetchone()
+        char = conn.execute("SELECT * FROM characters WHERE id = ? AND project_id = ?",
+                            (character_id, project_id)).fetchone()
+        if not row or not char:
+            raise HTTPException(status_code=404, detail="Character not found")
+        a, c = _out(row), row_to_dict(char)
+        identity = a["data"].get("appearance") or ""
+        appearance = apply_identity(c.get("appearance"), identity)
+        dest = Path(settings.assets_dir) / str(project_id) / "library" / str(asset_id) / "source"
+        sources = [a.get("image_path"), *(a["data"].get("source_images") or [])]
+        pictures = [p for p in (_copy(x, dest) for x in sources) if p]
+        keep = [t for t in c.get("tags") or [] if t.split(":", 1)[0].lower() not in set(IDENTITY_TAGS.values())]
+        alias = [t for t in a["tags"] if t.lower().startswith("alias:")]
+        tags = tags_json(merge_tags(keep, alias + identity_tags(identity) + [f"library:{asset_id}"]), c["name"])
+        conn.execute(
+            "UPDATE characters SET appearance = ?, tags = ?, source_images = ?, consistency_prompt = ? WHERE id = ?",
+            (appearance, tags, json.dumps(list(dict.fromkeys(pictures))),
+             character_sheet_prompt({**c, "appearance": appearance}), character_id),
+        )
+        conn.commit()
+        return row_to_dict(conn.execute("SELECT * FROM characters WHERE id = ?", (character_id,)).fetchone())
     finally:
         conn.close()

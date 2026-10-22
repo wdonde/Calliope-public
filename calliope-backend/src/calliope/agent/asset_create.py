@@ -20,6 +20,7 @@ from typing import Any
 from PIL import Image
 
 from calliope.agent.asset_tags import ITEM_CATEGORIES, name_tags, normalize_category, tags_json
+from calliope.agent.character_identity import identity_tags
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
     character_image_prompt,
@@ -45,7 +46,7 @@ LOOK_HINT = {
              "distinctive details (30-50 words)"),
 }
 TAG_KEYS = {
-    "character": "alias (other names or nicknames), faction (group or side in the story), role (protagonist, villain, ...)",
+    "character": "alias (other names or nicknames), role (protagonist, villain, mentor, ...)",
     "location": "type (interior, exterior, landscape, vehicle interior), region (world or area), alias",
     "item": "alias, owner (the character it belongs to), material or era if it matters",
 }
@@ -78,10 +79,10 @@ CHARACTER_SHEET = (
 )
 
 
-def sheet_text(name: str, look: dict[str, Any]) -> str:
+def sheet_text(name: str, look: dict[str, Any], *, identity_only: bool = False) -> str:
     """The character sheet as text (stored in characters.appearance)."""
     lines: list[str] = []
-    for section, fields in CHARACTER_SHEET:
+    for section, fields in CHARACTER_SHEET[:1] if identity_only else CHARACTER_SHEET:
         if lines:
             lines.append("")
         lines.append(section)
@@ -136,15 +137,18 @@ def collage(paths: list[str], out: Path, size: int = 1536) -> str:
     return str(out)
 
 
-async def describe(kind: str, name: str, prompt: str, images: list[str], *, context: str = "") -> dict[str, Any]:
+async def describe(kind: str, name: str, prompt: str, images: list[str], *, context: str = "",
+                   identity_only: bool = False) -> dict[str, Any]:
     """The asset's look (English), tags and -- for items -- category, from text and pictures.
     Characters get the filled-in CHARACTER_SHEET; missing notes are fine, the
     model then invents a fitting, specific look from the name and ``context``
-    (the story it belongs to, the look written so far)."""
+    (the story it belongs to, the look written so far). ``identity_only`` asks
+    for the CHARACTER INFORMATION part alone (library characters)."""
     field, hint = LOOK_HINT[kind]
     category = f',\n  "category": "one of {", ".join(ITEM_CATEGORIES)} or your own word"' if kind == "item" else ""
     if kind == "character":
-        sheet = "\n".join(f'    "{label}": "{h}",' for _, fields in CHARACTER_SHEET for label, h in fields)
+        wanted = CHARACTER_SHEET[:1] if identity_only else CHARACTER_SHEET
+        sheet = "\n".join(f'    "{label}": "{h}",' for _, fields in wanted for label, h in fields)
         shape = f'  "look": {{\n{sheet.rstrip(",")}\n  }}'
         ask = ('- "look": fill every field of the character sheet, concrete and specific enough that the '
                "character is recognisable in every picture; invent fitting details the notes and pictures "
@@ -182,7 +186,7 @@ Respond ONLY with JSON:
         result = {}
     if kind == "character":
         look = result.get("look") if isinstance(result.get("look"), dict) else {}
-        value = sheet_text(name, look) if look else (result.get(field) or prompt or name)
+        value = sheet_text(name, look, identity_only=identity_only) if look else (result.get(field) or prompt or name)
     else:
         value = result.get(field) or prompt or name
     return {
@@ -315,8 +319,11 @@ async def create_library_asset(*, kind: str, name: str, prompt: str = "", image_
     for p in [p for p in image_paths or [] if p and Path(p).is_file()][:MAX_IMAGES]:
         (lib_dir / "source").mkdir(parents=True, exist_ok=True)
         images.append(str(shutil.copy2(p, lib_dir / "source" / Path(p).name)))
-    look = await describe(kind, name, prompt, images)
+    # Library characters keep only who they are; each project adds its own outfit.
+    look = await describe(kind, name, prompt, images, identity_only=kind == "character")
     field = LOOK_HINT[kind][0]
+    if kind == "character":
+        look["tags"] = list(look["tags"]) + identity_tags(look[field])
     seed = {"name": name, field: look[field], "role": "", "age": "", "personality": ""}
     consistency = (character_sheet_prompt(seed) if kind == "character"
                    else location_reference_prompt(seed) if kind == "location" else item_reference_prompt(seed))

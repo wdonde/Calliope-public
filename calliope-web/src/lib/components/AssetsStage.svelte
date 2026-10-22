@@ -19,6 +19,7 @@
 	import AssetTags from '$lib/components/AssetTags.svelte';
 	import LibraryPicker from '$lib/components/LibraryPicker.svelte';
 	import NewAssetDialog from '$lib/components/NewAssetDialog.svelte';
+	import LibraryMatches from '$lib/components/LibraryMatches.svelte';
 	import ImageLightbox from '$lib/components/ImageLightbox.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -759,6 +760,10 @@
 		client.invalidateQueries({ queryKey: ['jobs'] });
 	}}
 />
+
+{#if tab === 'characters'}
+	<div class="matches-wrap"><LibraryMatches {projectId} /></div>
+{/if}
 
 <LibraryPicker
 	bind:open={pickerOpen}
@@ -1600,6 +1605,9 @@
 	.wf-field .field-select {
 		width: 100%;
 		max-width: 100%;
+	}
+	.matches-wrap {
+		margin-bottom: 12px;
 	}
 	.asset-toolbar {
 		display: flex;

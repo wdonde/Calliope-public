@@ -697,15 +697,23 @@ summaries). If not, fix it."""
 def character_sheet_prompt(character: dict[str, Any]) -> str:
     """Transparent character-sheet template — what ComfyUI receives for turnarounds."""
     name = (character.get("name") or "Unnamed").strip()
-    role = (character.get("role") or "character").strip()
-    age = (character.get("age") or "unspecified age").strip()
+    role = (character.get("role") or "").strip()
+    age = (character.get("age") or "").strip()
     appearance = (character.get("appearance") or "no appearance notes yet").strip()
     personality = (character.get("personality") or "").strip()
     personality_line = f"Personality cues (visual only): {personality}\n" if personality else ""
+    facts = " ".join(f"{label}: {value}." for label, value in (("Role", role), ("Age", age)) if value)
+    if appearance.startswith("CHARACTER INFORMATION"):
+        # A structured sheet speaks for itself; an identity-only sheet (library)
+        # gets plain clothes so the identity is not tied to one project's outfit.
+        look = appearance if "\nOUTFIT" in appearance else (
+            f"{appearance}\nOutfit: simple plain neutral clothing (the outfit is decided per project)")
+    else:
+        look = f"Appearance: {appearance}"
     return (
         f"CHARACTER SHEET — {name}\n"
-        f"Role: {role}. Age: {age}.\n"
-        f"Appearance: {appearance}\n"
+        f"{facts + chr(10) if facts else ''}"
+        f"{look}\n"
         f"{personality_line}"
         f"\n"
         f"Layout: single cinematic character reference sheet on a clean neutral backdrop, "

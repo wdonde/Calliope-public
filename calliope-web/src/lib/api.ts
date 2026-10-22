@@ -253,6 +253,16 @@ export const assetLibraryApi = {
 		),
 	describeProject: (projectId: number, kind: AssetKind, entityId: number) =>
 		api<Record<string, unknown>>(`/api/projects/${projectId}/${kind}/${entityId}/describe`, { method: 'POST' }),
+	matches: (projectId: number) =>
+		api<
+			{
+				character_id: number;
+				character_name: string;
+				matches: { asset_id: number; name: string; score: number; why: string[]; image_path: string | null; linked: boolean }[];
+			}[]
+		>(`/api/projects/${projectId}/library-matches`),
+	applyIdentity: (assetId: number, projectId: number, characterId: number) =>
+		api<Record<string, unknown>>(`/api/asset-library/${assetId}/apply/${projectId}/${characterId}`, { method: 'POST' }),
 	libraryFromImages: (assetId: number) =>
 		api<{ job_id: number }>(`/api/asset-library/${assetId}/from-images`, { method: 'POST' }),
 	fromImages: (projectId: number, kind: AssetKind, entityId: number) =>

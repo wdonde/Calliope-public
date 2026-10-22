@@ -211,3 +211,49 @@ def test_suggested_tags_do_not_add_a_second_value_for_a_key():
 
     assert merge_tags(["faction:Military", "alias:Eddy"], ["faction:Human Military", "alias:Reed", "role:hero"]) == [
         "faction:Military", "alias:Eddy", "alias:Reed", "role:hero"]
+
+
+SHEET = """CHARACTER INFORMATION
+Name: Captain Edward 'Ripper Eddy' Reed
+Age: 45
+Gender: male
+Build: muscular
+Hair: short, graying, military cut
+Distinctive features: prominent scar across left cheek
+
+OUTFIT
+Headwear: tactical helmet
+Outerwear: tactical vest"""
+
+
+def test_library_keeps_only_the_identity_and_projects_find_and_use_it(client):
+    a = client.post("/api/projects", json={"title": "Alien Nation"}).json()["id"]
+    c = client.post(f"/api/projects/{a}/characters", json={
+        "name": "Captain Edward 'Ripper Eddy' Reed", "role": "Protagonist", "appearance": SHEET,
+        "personality": "grim, loyal"}).json()
+    lib = client.post(f"/api/projects/{a}/character/{c['id']}/to-library").json()
+    assert lib["data"]["appearance"].endswith("scar across left cheek") and "OUTFIT" not in lib["data"]["appearance"]
+    assert "personality" not in lib["data"] and "role" not in lib["data"]
+    assert lib["tags"] == ["alias:Ripper Eddy", "role:protagonist", "gender:male", "age:45", "build:muscular",
+                           "hair:short, graying, military cut", "mark:prominent scar across left cheek"]
+
+    # Another project has its own Reed in a pilot outfit.
+    b = client.post("/api/projects", json={"title": "Sequel"}).json()["id"]
+    own = client.post(f"/api/projects/{b}/characters", json={
+        "name": "Eddy Reed", "role": "protagonist",
+        "appearance": "CHARACTER INFORMATION\nName: Eddy Reed\nAge: 47\nGender: male\n\nOUTFIT\nTop: orange flight suit"}).json()
+    client.post(f"/api/projects/{b}/characters", json={"name": "Malone", "appearance": "Gender: female"})
+    matches = client.get(f"/api/projects/{b}/library-matches").json()
+    assert [m["character_id"] for m in matches] == [own["id"]]
+    best = matches[0]["matches"][0]
+    assert best["asset_id"] == lib["id"] and "name: eddy, reed" in best["why"] and "gender: male" in best["why"]
+
+    used = client.post(f"/api/asset-library/{lib['id']}/apply/{b}/{own['id']}").json()
+    assert used["appearance"].startswith("CHARACTER INFORMATION\nName: Captain Edward")
+    assert used["appearance"].endswith("OUTFIT\nTop: orange flight suit")  # the project's outfit stays
+    assert f"library:{lib['id']}" in used["tags"] and "alias:Ripper Eddy" in used["tags"]
+    assert client.get("/api/asset-library").json()[0]["used_in"] == [{"id": b, "title": "Sequel"}]
+
+    edited = client.patch(f"/api/asset-library/{lib['id']}", json={
+        "data": {"appearance": SHEET.replace("military cut", "shaved")}}).json()
+    assert "hair:short, graying, shaved" in edited["tags"] and "OUTFIT" not in edited["data"]["appearance"]

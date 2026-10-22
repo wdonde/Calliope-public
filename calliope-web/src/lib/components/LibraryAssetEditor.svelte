@@ -29,13 +29,9 @@
 
 	const isChar = $derived(asset?.kind === 'character');
 	const textFields = $derived(
+		// Library characters hold only who they are; outfit, personality and role are per project.
 		isChar
-			? [
-					{ key: 'appearance', label: t('assets.appearance'), rows: 12 },
-					{ key: 'role', label: t('assets.edit.role'), rows: 1 },
-					{ key: 'age', label: t('assets.edit.age'), rows: 1 },
-					{ key: 'personality', label: t('assets.personality'), rows: 2 },
-				]
+			? [{ key: 'appearance', label: t('assets.edit.identity'), rows: 12 }]
 			: [{ key: 'description', label: t('assets.description'), rows: 4 }],
 	);
 
@@ -70,7 +66,8 @@
 			);
 			const r = await assetLibraryApi.describeLibrary(asset.id, fields[lookKey] ?? '');
 			fields[lookKey] = r.text;
-			// Suggestions only add keys the asset does not have yet (several aliases are fine).
+			// Suggestions only add keys the asset does not have yet (several aliases are fine);
+			// identity tags are read again from the new sheet on save.
 			const current = tags.split(',').map((s) => s.trim()).filter(Boolean);
 			const keyOf = (tag: string) => (tag.includes(':') ? tag.split(':')[0].toLowerCase() : tag.toLowerCase());
 			const have = new Set(current.map(keyOf));
