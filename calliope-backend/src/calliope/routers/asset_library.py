@@ -20,13 +20,14 @@ from pydantic import BaseModel, Field
 from calliope.agent.asset_create import (
     LOOK_HINT,
     create_asset,
+    outfit_from_text,
     create_library_asset,
     describe,
     enqueue_from_images,
     project_context,
 )
 from calliope.agent.asset_tags import merge_tags, normalize_category, suggest_tags, tags_json
-from calliope.agent.character_identity import IDENTITY_TAGS, apply_identity, identity_tags, identity_text, match
+from calliope.agent.character_identity import IDENTITY, IDENTITY_TAGS, identity_tags, identity_text, match, outfit_text
 from calliope.agent.prompts import character_sheet_prompt
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
@@ -98,22 +99,30 @@ def _out(row) -> dict[str, Any]:
 
 
 def _add_projects(assets: list[dict[str, Any]]) -> None:
-    """Where each asset came from and which projects hold a copy (tag library:<id>)."""
+    """Where each asset came from and which projects hold a copy (tag library:<id>);
+    a project is outdated when it took the identity before the library last changed."""
     conn = get_db(settings.db_path)
     try:
         titles = {r["id"]: r["title"] for r in conn.execute("SELECT id, title FROM projects")}
-        used: dict[int, set[int]] = {}
+        used: dict[int, dict[int, str]] = {}
         for table in TABLES.values():
-            for row in conn.execute(f"SELECT project_id, tags FROM {table} WHERE tags LIKE '%library:%'"):
+            synced_col = ", library_synced_at" if table == "characters" else ""
+            for row in conn.execute(f"SELECT project_id, tags{synced_col} FROM {table} WHERE tags LIKE '%library:%'"):
                 for tag in json.loads(row["tags"] or "[]"):
                     if tag.startswith("library:") and tag[8:].isdigit():
-                        used.setdefault(int(tag[8:]), set()).add(row["project_id"])
+                        synced = (row["library_synced_at"] if synced_col else None) or ""
+                        seen = used.setdefault(int(tag[8:]), {})
+                        seen[row["project_id"]] = min(seen.get(row["project_id"], synced), synced)
     finally:
         conn.close()
     for a in assets:
         src = a.get("source_project_id")
         a["source_project"] = {"id": src, "title": titles[src]} if src in titles else None
-        a["used_in"] = [{"id": p, "title": titles[p]} for p in sorted(used.get(a["id"], ())) if p in titles]
+        a["used_in"] = [
+            {"id": p, "title": titles[p],
+             "outdated": a["kind"] == "character" and bool(synced) and (a.get("updated_at") or "") > synced}
+            for p, synced in sorted(used.get(a["id"], {}).items()) if p in titles
+        ]
 
 
 def _identity_tags_for(tags: list[str], identity: str, role: str | None = None) -> list[str]:
@@ -397,9 +406,14 @@ async def describe_project_asset(project_id: int, kind: Kind, entity_id: int) ->
     e = row_to_dict(row)
     field = LOOK_HINT[kind][0]
     known = " ".join(f"{k}: {e[k]}" for k in ("role", "age", "personality", field) if e.get(k))
+    # A character linked to the library keeps that identity; only its outfit is (re)written.
+    locked = kind == "character" and any(t.startswith("library:") for t in e.get("tags") or [])
     look = await describe(kind, e["name"], "", [p for p in e.get("source_images") or [] if Path(p).is_file()],
-                          context=f"{project_context(project_id)}\n{known}".strip())
-    sets = {field: look[field], "tags": tags_json(merge_tags(e.get("tags") or [], list(look["tags"])), e["name"])}
+                          context=f"{project_context(project_id)}\n{known}".strip(), outfit_only=locked)
+    text = look[field]
+    if locked:
+        text = f"{identity_text(e.get(field))}\n\n{text}".strip()
+    sets = {field: text, "tags": tags_json(merge_tags(e.get("tags") or [], list(look["tags"])), e["name"])}
     if kind == "item" and not e.get("category") and look["category"]:
         sets["category"] = look["category"]
     conn = get_db(settings.db_path)
@@ -427,42 +441,83 @@ async def library_matches(project_id: int) -> list[dict[str, Any]]:
         found = []
         for a in lib:
             score, why = match(c, a)
-            if score >= 3:
+            is_linked = str(a["id"]) in linked
+            if score >= 3 or is_linked:
                 found.append({"asset_id": a["id"], "name": a["name"], "score": score, "why": why,
-                              "image_path": a["image_path"], "linked": str(a["id"]) in linked})
+                              "image_path": a["image_path"], "linked": is_linked,
+                              # The library changed since the project took this identity.
+                              "outdated": is_linked and (a.get("updated_at") or "") > (c.get("library_synced_at") or "")})
         if found:
-            found.sort(key=lambda m: -m["score"])
+            found.sort(key=lambda m: (not m["linked"], -m["score"]))
             out.append({"character_id": c["id"], "character_name": c["name"], "matches": found[:3]})
     return out
 
 
+class ApplyRequest(BaseModel):
+    # Replace a prompt the user edited by hand (otherwise it is kept and reported).
+    replace_prompt: bool = False
+
+
 @router.post("/asset-library/{asset_id}/apply/{project_id}/{character_id}")
-async def apply_library_identity(asset_id: int, project_id: int, character_id: int) -> dict[str, Any]:
+async def apply_library_identity(asset_id: int, project_id: int, character_id: int,
+                                 payload: ApplyRequest | None = None) -> dict[str, Any]:
     """Give a project character the library identity: its CHARACTER INFORMATION is
-    replaced (the project's outfit stays), the library pictures become its
-    reference pictures, and alias/identity tags join its tags."""
+    replaced and the project's outfit stays (read out of a prose appearance
+    first), the library pictures become its reference pictures, alias/identity
+    tags join its tags. A hand-edited image prompt is only replaced on request."""
     conn = get_db(settings.db_path)
     try:
         row = conn.execute("SELECT * FROM library_assets WHERE id = ? AND kind = 'character'", (asset_id,)).fetchone()
         char = conn.execute("SELECT * FROM characters WHERE id = ? AND project_id = ?",
                             (character_id, project_id)).fetchone()
-        if not row or not char:
-            raise HTTPException(status_code=404, detail="Character not found")
-        a, c = _out(row), row_to_dict(char)
-        identity = a["data"].get("appearance") or ""
-        appearance = apply_identity(c.get("appearance"), identity)
-        dest = Path(settings.assets_dir) / str(project_id) / "library" / str(asset_id) / "source"
-        sources = [a.get("image_path"), *(a["data"].get("source_images") or [])]
-        pictures = [p for p in (_copy(x, dest) for x in sources) if p]
-        keep = [t for t in c.get("tags") or [] if t.split(":", 1)[0].lower() not in set(IDENTITY_TAGS.values())]
-        alias = [t for t in a["tags"] if t.lower().startswith("alias:")]
-        tags = tags_json(merge_tags(keep, alias + identity_tags(identity) + [f"library:{asset_id}"]), c["name"])
-        conn.execute(
-            "UPDATE characters SET appearance = ?, tags = ?, source_images = ?, consistency_prompt = ? WHERE id = ?",
-            (appearance, tags, json.dumps(list(dict.fromkeys(pictures))),
-             character_sheet_prompt({**c, "appearance": appearance}), character_id),
-        )
-        conn.commit()
-        return row_to_dict(conn.execute("SELECT * FROM characters WHERE id = ?", (character_id,)).fetchone())
     finally:
         conn.close()
+    if not row or not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    a, c = _out(row), row_to_dict(char)
+    identity = a["data"].get("appearance") or ""
+    current = (c.get("appearance") or "").strip()
+    outfit = outfit_text(current)
+    if not outfit and current and not current.startswith(IDENTITY):
+        outfit = await outfit_from_text(c["name"], current)  # prose from Draft Storyline
+    appearance = f"{identity.strip()}\n\n{outfit}".strip() if outfit else identity.strip()
+
+    own_prompt = (c.get("consistency_prompt") or "").strip()
+    edited = bool(own_prompt) and own_prompt != character_sheet_prompt(c).strip()
+    replace = not edited or bool(payload and payload.replace_prompt)
+    prompt = character_sheet_prompt({**c, "appearance": appearance}) if replace else own_prompt
+
+    dest = Path(settings.assets_dir) / str(project_id) / "library" / str(asset_id) / "source"
+    sources = [a.get("image_path"), *(a["data"].get("source_images") or [])]
+    pictures = [p for p in (_copy(x, dest) for x in sources) if p]
+    keep = [t for t in c.get("tags") or [] if t.split(":", 1)[0].lower() not in set(IDENTITY_TAGS.values())
+            and not t.startswith("library:")]
+    alias = [t for t in a["tags"] if t.lower().startswith("alias:")]
+    tags = tags_json(merge_tags(keep, alias + identity_tags(identity) + [f"library:{asset_id}"]), c["name"])
+    conn = get_db(settings.db_path)
+    try:
+        conn.execute(
+            "UPDATE characters SET appearance = ?, tags = ?, source_images = ?, consistency_prompt = ?, "
+            "library_synced_at = ? WHERE id = ?",
+            (appearance, tags, json.dumps(list(dict.fromkeys(pictures))), prompt, a["updated_at"], character_id),
+        )
+        conn.commit()
+        out = row_to_dict(conn.execute("SELECT * FROM characters WHERE id = ?", (character_id,)).fetchone())
+    finally:
+        conn.close()
+    return {"character": out, "prompt_kept": not replace}
+
+
+@router.post("/projects/{project_id}/character/{character_id}/update-from-library")
+async def update_from_library(project_id: int, character_id: int, payload: ApplyRequest | None = None) -> dict[str, Any]:
+    """Take the linked library identity again (after it changed in the library)."""
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT tags FROM characters WHERE id = ? AND project_id = ?",
+                           (character_id, project_id)).fetchone()
+    finally:
+        conn.close()
+    linked = [t[8:] for t in json.loads(row["tags"] or "[]") if t.startswith("library:") and t[8:].isdigit()] if row else []
+    if not linked:
+        raise HTTPException(status_code=404, detail="This character is not linked to the library.")
+    return await apply_library_identity(int(linked[-1]), project_id, character_id, payload)

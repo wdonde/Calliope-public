@@ -11,6 +11,7 @@
 	import { toast } from '$lib/toast';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 
 	interface Props {
 		projectId: number;
@@ -23,15 +24,28 @@
 	);
 	const rows = $derived($matchesQuery.data ?? []);
 	let busy = $state<string | null>(null);
+	// A hand-edited image prompt was kept; ask before replacing it.
+	let keptFor = $state<{ assetId: number; characterId: number; name: string; update: boolean } | null>(null);
+	let askOpen = $state(false);
 
-	async function use(assetId: number, characterId: number, name: string) {
+	async function refresh() {
+		await client.invalidateQueries({ queryKey: ['assets'] });
+		await client.invalidateQueries({ queryKey: ['library-matches', projectId] });
+		await client.invalidateQueries({ queryKey: ['asset-library'] });
+	}
+
+	async function use(assetId: number, characterId: number, name: string, update = false, replacePrompt = false) {
 		busy = `${assetId}:${characterId}`;
 		try {
-			await assetLibraryApi.applyIdentity(assetId, projectId, characterId);
-			toast.success(t('assets.match.applied', { name }));
-			await client.invalidateQueries({ queryKey: ['assets'] });
-			await client.invalidateQueries({ queryKey: ['library-matches', projectId] });
-			await client.invalidateQueries({ queryKey: ['asset-library'] });
+			const r = update
+				? await assetLibraryApi.updateFromLibrary(projectId, characterId, replacePrompt)
+				: await assetLibraryApi.applyIdentity(assetId, projectId, characterId, replacePrompt);
+			toast.success(t(update ? 'assets.match.updated' : 'assets.match.applied', { name }));
+			if (r.prompt_kept) {
+				keptFor = { assetId, characterId, name, update };
+				askOpen = true;
+			}
+			await refresh();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : String(err));
 		} finally {
@@ -39,6 +53,18 @@
 		}
 	}
 </script>
+
+<ConfirmDialog
+	bind:open={askOpen}
+	title={t('assets.match.promptTitle')}
+	message={t('assets.match.promptBody', { name: keptFor?.name ?? '' })}
+	confirmLabel={t('assets.match.promptReplace')}
+	onconfirm={() => {
+		const k = keptFor;
+		keptFor = null;
+		if (k) void use(k.assetId, k.characterId, k.name, k.update, true);
+	}}
+/>
 
 {#if rows.length}
 	<Card>
@@ -55,7 +81,13 @@
 							<span><strong>{row.character_name}</strong> ↔ {m.name}</span>
 							<span class="muted small">{m.why.join(' · ')}</span>
 						</div>
-						{#if m.linked}
+						{#if m.linked && m.outdated}
+							<Button size="sm" variant="primary" loading={busy === `${m.asset_id}:${row.character_id}`}
+								title={t('assets.match.outdatedHint')}
+								onclick={() => use(m.asset_id, row.character_id, row.character_name, true)}>
+								{t('assets.match.update')}
+							</Button>
+						{:else if m.linked}
 							<span class="linked small">{t('assets.match.linked')}</span>
 						{:else}
 							<Button size="sm" variant="secondary" loading={busy === `${m.asset_id}:${row.character_id}`}

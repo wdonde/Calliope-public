@@ -421,6 +421,10 @@ async def migrate_db(db_path: Path) -> None:
         # The user's own pictures an asset was made from (agent/asset_create.py).
         if "source_images" not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN source_images TEXT")
+    # When a project character last took its identity from the library (agent/character_identity.py).
+    char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
+    if "library_synced_at" not in char_cols:
+        conn.execute("ALTER TABLE characters ADD COLUMN library_synced_at TEXT")
     item_cols = {r[1] for r in conn.execute("PRAGMA table_info(items)").fetchall()}
     if "category" not in item_cols:
         conn.execute("ALTER TABLE items ADD COLUMN category TEXT")

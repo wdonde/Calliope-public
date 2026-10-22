@@ -79,10 +79,11 @@ CHARACTER_SHEET = (
 )
 
 
-def sheet_text(name: str, look: dict[str, Any], *, identity_only: bool = False) -> str:
+def sheet_text(name: str, look: dict[str, Any], *, identity_only: bool = False, outfit_only: bool = False) -> str:
     """The character sheet as text (stored in characters.appearance)."""
     lines: list[str] = []
-    for section, fields in CHARACTER_SHEET[:1] if identity_only else CHARACTER_SHEET:
+    wanted = CHARACTER_SHEET[:1] if identity_only else CHARACTER_SHEET[1:] if outfit_only else CHARACTER_SHEET
+    for section, fields in wanted:
         if lines:
             lines.append("")
         lines.append(section)
@@ -138,16 +139,17 @@ def collage(paths: list[str], out: Path, size: int = 1536) -> str:
 
 
 async def describe(kind: str, name: str, prompt: str, images: list[str], *, context: str = "",
-                   identity_only: bool = False) -> dict[str, Any]:
+                   identity_only: bool = False, outfit_only: bool = False) -> dict[str, Any]:
     """The asset's look (English), tags and -- for items -- category, from text and pictures.
     Characters get the filled-in CHARACTER_SHEET; missing notes are fine, the
     model then invents a fitting, specific look from the name and ``context``
     (the story it belongs to, the look written so far). ``identity_only`` asks
-    for the CHARACTER INFORMATION part alone (library characters)."""
+    for the CHARACTER INFORMATION part alone (library characters), ``outfit_only``
+    for the OUTFIT part alone (a project character whose identity is linked)."""
     field, hint = LOOK_HINT[kind]
     category = f',\n  "category": "one of {", ".join(ITEM_CATEGORIES)} or your own word"' if kind == "item" else ""
     if kind == "character":
-        wanted = CHARACTER_SHEET[:1] if identity_only else CHARACTER_SHEET
+        wanted = CHARACTER_SHEET[:1] if identity_only else CHARACTER_SHEET[1:] if outfit_only else CHARACTER_SHEET
         sheet = "\n".join(f'    "{label}": "{h}",' for _, fields in wanted for label, h in fields)
         shape = f'  "look": {{\n{sheet.rstrip(",")}\n  }}'
         ask = ('- "look": fill every field of the character sheet, concrete and specific enough that the '
@@ -186,7 +188,8 @@ Respond ONLY with JSON:
         result = {}
     if kind == "character":
         look = result.get("look") if isinstance(result.get("look"), dict) else {}
-        value = sheet_text(name, look, identity_only=identity_only) if look else (result.get(field) or prompt or name)
+        value = (sheet_text(name, look, identity_only=identity_only, outfit_only=outfit_only) if look
+                 else (result.get(field) or prompt or name))
     else:
         value = result.get(field) or prompt or name
     return {
@@ -194,6 +197,36 @@ Respond ONLY with JSON:
         "tags": result.get("tags") or [],
         "category": normalize_category(result.get("category")) if kind == "item" else None,
     }
+
+
+async def outfit_from_text(name: str, text: str) -> str:
+    """The OUTFIT block read out of a prose appearance (what the text says, nothing invented)."""
+    sheet = "\n".join(f'    "{label}": "{h}",' for label, h in CHARACTER_SHEET[1][1])
+    messages = [
+        {"role": "system", "content": "You extract facts into JSON. Respond with a single valid JSON object."},
+        {"role": "user", "content": f"""Character: {name}
+Description: {text}
+
+Fill the outfit fields with what the description says about clothing, gear and carried items, in English.
+Copy each value word for word as a whole phrase from the description, with every adjective it has
+(color, material, condition) -- e.g. "a red wool scarf with frayed ends", never just "scarf".
+Leave a field empty when the description does not mention it. Do not invent anything.
+
+Respond ONLY with JSON:
+{{
+  "look": {{
+{sheet.rstrip(",")}
+  }}
+}}"""},
+    ]
+    try:
+        result = await generate_structured(messages, temperature=0.1, role="writer")
+    except Exception:  # noqa: BLE001 -- keep the prose rather than lose it
+        result = {}
+    look = result.get("look") if isinstance(result.get("look"), dict) else {}
+    outfit = sheet_text(name, look, outfit_only=True) if any(str(v).strip() for v in look.values()) else ""
+    # Nothing usable came back: the prose itself stays, as project notes.
+    return outfit if outfit.count("\n") >= 1 else f"OUTFIT\nNotes: {text.strip()}"
 
 
 def project_context(project_id: int | None) -> str:

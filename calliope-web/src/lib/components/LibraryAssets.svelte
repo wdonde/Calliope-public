@@ -131,7 +131,7 @@
 						{#if a.source_project}<span>{t('assets.edit.from', { project: a.source_project.title })}</span>{/if}
 						<span>
 							{a.used_in?.length
-								? t('assets.edit.usedIn', { projects: a.used_in.map((p) => p.title).join(', ') })
+								? t('assets.edit.usedIn', { projects: a.used_in.map((p) => (p.outdated ? `${p.title} (${t('assets.edit.outdated')})` : p.title)).join(', ') })
 								: t('assets.edit.unused')}
 						</span>
 					</p>

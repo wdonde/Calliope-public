@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from calliope.activity import tracked
 from calliope.agent.idea_guard import LONG_IDEA_CHARS, LongSourceText, refuse_long_idea
+from calliope.agent.asset_create import sheet_text
 from calliope.agent.asset_tags import name_tags, normalize_category, tags_json
 from calliope.agent.llm import generate_structured
 from calliope.agent.prompts import (
@@ -345,7 +346,11 @@ async def generate_story(project_id: int, replace: bool = True) -> dict[str, Any
             ):
                 for entity in rows:
                     if seed_kind == "characters":
-                        appearance = entity.get("appearance", "") or ""
+                        # Draft Storyline returns a structured "look" (the character sheet);
+                        # older answers or models may still give a prose "appearance".
+                        look = entity.get("look")
+                        appearance = (sheet_text(entity.get("name", ""), look) if isinstance(look, dict) and look
+                                      else entity.get("appearance", "") or "")
                         row_seed = {
                             "name": entity.get("name", ""),
                             "role": entity.get("role", ""),

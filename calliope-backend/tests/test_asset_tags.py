@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from PIL import Image
@@ -162,7 +163,7 @@ def test_library_asset_edit_shows_projects_and_renders_from_prompt(client):
     client.post(f"/api/asset-library/{lib['id']}/to-project", json={"project_id": b})
     listed = client.get("/api/asset-library").json()[0]
     assert listed["source_project"] == {"id": a, "title": "Alien Nation"}
-    assert listed["used_in"] == [{"id": b, "title": "Sequel"}]
+    assert listed["used_in"] == [{"id": b, "title": "Sequel", "outdated": False}]
 
     pic = Path(settings.assets_dir) / "uploads" / "reed.png"
     pic.parent.mkdir(parents=True, exist_ok=True)
@@ -172,7 +173,7 @@ def test_library_asset_edit_shows_projects_and_renders_from_prompt(client):
                                          "bogus": "x"},
         "source_images": [str(pic)]}).json()
     assert edited["name"] == "Edward Reed" and edited["data"]["appearance"] == "grey buzz cut"
-    assert "bogus" not in edited["data"] and edited["used_in"] == [{"id": b, "title": "Sequel"}]
+    assert "bogus" not in edited["data"] and edited["used_in"][0]["id"] == b
     assert len(edited["data"]["source_images"]) == 1 and "/library/" in edited["data"]["source_images"][0]
     assert client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": ["/etc/passwd"]}).status_code == 422
 
@@ -248,12 +249,86 @@ def test_library_keeps_only_the_identity_and_projects_find_and_use_it(client):
     best = matches[0]["matches"][0]
     assert best["asset_id"] == lib["id"] and "name: eddy, reed" in best["why"] and "gender: male" in best["why"]
 
-    used = client.post(f"/api/asset-library/{lib['id']}/apply/{b}/{own['id']}").json()
+    used = client.post(f"/api/asset-library/{lib['id']}/apply/{b}/{own['id']}").json()["character"]
     assert used["appearance"].startswith("CHARACTER INFORMATION\nName: Captain Edward")
     assert used["appearance"].endswith("OUTFIT\nTop: orange flight suit")  # the project's outfit stays
     assert f"library:{lib['id']}" in used["tags"] and "alias:Ripper Eddy" in used["tags"]
-    assert client.get("/api/asset-library").json()[0]["used_in"] == [{"id": b, "title": "Sequel"}]
+    assert client.get("/api/asset-library").json()[0]["used_in"][0]["id"] == b
 
     edited = client.patch(f"/api/asset-library/{lib['id']}", json={
         "data": {"appearance": SHEET.replace("military cut", "shaved")}}).json()
     assert "hair:short, graying, shaved" in edited["tags"] and "OUTFIT" not in edited["data"]["appearance"]
+
+
+
+def test_linking_keeps_prose_outfit_locks_identity_and_updates_from_library(client, monkeypatch):
+    import calliope.agent.asset_create as ac
+
+    calls = []
+
+    async def fake_llm(messages, temperature=0.4, role=None):
+        text = messages[1]["content"] if isinstance(messages[1]["content"], str) else messages[1]["content"][0]["text"]
+        calls.append(text)
+        if "Do not invent anything" in text:  # prose -> outfit
+            return {"look": {"Headwear": "none", "Outerwear": "orange flight jacket", "Footwear": "black boots"}}
+        return {"look": {"Outerwear": "white parade coat", "Top": "grey shirt"}, "tags": []}
+
+    monkeypatch.setattr(ac, "generate_structured", fake_llm)
+    a = client.post("/api/projects", json={"title": "Alien Nation"}).json()["id"]
+    src = client.post(f"/api/projects/{a}/characters", json={"name": "Edward Reed", "appearance": SHEET}).json()
+    lib = client.post(f"/api/projects/{a}/character/{src['id']}/to-library").json()
+
+    b = client.post("/api/projects", json={"title": "Sequel"}).json()["id"]
+    prose = client.post(f"/api/projects/{b}/characters", json={
+        "name": "Reed", "appearance": "A pilot in an orange flight jacket and black boots."}).json()
+    client.patch(f"/api/projects/{b}/characters/{prose['id']}", json={"consistency_prompt": "MY OWN PROMPT"})
+
+    r = client.post(f"/api/asset-library/{lib['id']}/apply/{b}/{prose['id']}").json()
+    c = r["character"]
+    assert c["appearance"].startswith("CHARACTER INFORMATION\nName: Captain Edward")
+    assert "OUTFIT\nHeadwear: none\nOuterwear: orange flight jacket" in c["appearance"]  # prose outfit kept
+    assert r["prompt_kept"] is True and c["consistency_prompt"] == "MY OWN PROMPT"
+    again = client.post(f"/api/asset-library/{lib['id']}/apply/{b}/{prose['id']}", json={"replace_prompt": True}).json()
+    assert again["prompt_kept"] is False and again["character"]["consistency_prompt"].startswith("CHARACTER SHEET")
+
+    # Generate on a linked character writes the outfit only; the identity stays.
+    d = client.post(f"/api/projects/{b}/character/{prose['id']}/describe").json()
+    assert d["appearance"].startswith("CHARACTER INFORMATION\nName: Captain Edward") and "Age: 45" in d["appearance"]
+    assert "Outerwear: white parade coat" in d["appearance"] and "orange" not in d["appearance"]
+
+    # The library changes -> the project sees it as outdated and can update.
+    import time
+    time.sleep(1.1)
+    client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"appearance": SHEET.replace("Age: 45", "Age: 50")}})
+    m = client.get(f"/api/projects/{b}/library-matches").json()[0]["matches"][0]
+    assert m["linked"] and m["outdated"]
+    assert [u["outdated"] for u in client.get("/api/asset-library").json()[0]["used_in"]] == [True]
+    up = client.post(f"/api/projects/{b}/character/{prose['id']}/update-from-library").json()["character"]
+    assert "Age: 50" in up["appearance"] and "Outerwear: white parade coat" in up["appearance"]
+    assert not client.get(f"/api/projects/{b}/library-matches").json()[0]["matches"][0]["outdated"]
+
+
+def test_draft_storyline_writes_characters_as_sheets(client, monkeypatch):
+    import calliope.routers.story as story_router
+
+    async def fake(messages, temperature=0.7, **kw):
+        user = messages[1]["content"]
+        assert '"look": {"Age"' in user and "Headwear" in user  # the schema asks for the sheet
+        m = re.search(r"exactly (\d+) beats", user)
+        n = int(m.group(1)) if m else 4
+        out = {"beats": [{"order_index": i + 1, "title": f"B{i}", "description": "x"} for i in range(n)]}
+        if "OUTPUT SCHEMA" in user and "characters" in user:
+            out.update({"title": "T", "logline": "L", "locations": [], "items": [], "characters": [
+                {"name": "Mia", "role": "protagonist", "look": {"Age": "17", "Gender": "female",
+                                                               "Hair": "chestnut ponytail", "Headwear": "none",
+                                                               "Outerwear": "yellow rain jacket"}},
+                {"name": "Old Tom", "appearance": "a bearded fisherman"}]})
+        return out
+
+    monkeypatch.setattr(story_router, "generate_structured", fake)
+    pid = client.post("/api/projects", json={"title": "T", "idea": "x", "target_duration": "1 minute"}).json()["id"]
+    assert client.post(f"/api/projects/{pid}/generate-story").status_code == 200
+    chars = {c["name"]: c for c in client.get(f"/api/projects/{pid}/assets").json()["characters"]}
+    assert chars["Mia"]["appearance"] == ("CHARACTER INFORMATION\nName: Mia\nAge: 17\nGender: female\n"
+                                          "Hair: chestnut ponytail\n\nOUTFIT\nHeadwear: none\nOuterwear: yellow rain jacket")
+    assert chars["Old Tom"]["appearance"] == "a bearded fisherman"  # prose answers still work

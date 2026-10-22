@@ -164,7 +164,7 @@ Tone: {tone or "cinematic, atmospheric"}
       "name": "Name",
       "role": "protagonist|antagonist|supporting",
       "age": "approximate age",
-      "appearance": "fixed look for image generation: age, build, face, hair color and style, one distinctive mark, and ONE default outfit incl. headwear -- specific enough that no two characters could be confused",
+      "look": {{"Age": "", "Gender": "", "Species": "only if not human", "Height": "cm", "Build": "", "Skin": "", "Face": "shape, jaw, nose, lips", "Eyes": "color, shape", "Hair": "color, length, style", "Distinctive features": "scars, tattoos, freckles or none", "Headwear": "or none", "Outerwear": "or none", "Top": "", "Bottom": "", "Footwear": "", "Accessories": "or none", "Signature items": "always carried, or none", "Color palette": "2-3 colors"}},
       "personality": "concise personality traits",
       "tags": ["alias:every other name or nickname the story uses", "faction:group or side, if any"]
     }}
@@ -188,6 +188,7 @@ Tone: {tone or "cinematic, atmospheric"}
 
 Keep descriptions visual and concrete. Characters, locations and items should be reusable across scenes.
 Tags are short 'key:value' labels in English keys (alias, faction, type); leave out a tag you have nothing for.
+Each character's "look" is its fixed sheet in English (one default outfit), specific enough that no two characters could be confused.
 FINAL CHECK before responding: beats.length == {beat_n}. If not, fix it."""
 
 
@@ -266,7 +267,7 @@ Tone: {tone or "cinematic, atmospheric"}
       "name": "Name",
       "role": "protagonist|antagonist|supporting",
       "age": "approximate age",
-      "appearance": "fixed look for image generation: age, build, face, hair color and style, one distinctive mark, and ONE default outfit incl. headwear -- specific enough that no two characters could be confused",
+      "look": {{"Age": "", "Gender": "", "Species": "only if not human", "Height": "cm", "Build": "", "Skin": "", "Face": "shape, jaw, nose, lips", "Eyes": "color, shape", "Hair": "color, length, style", "Distinctive features": "scars, tattoos, freckles or none", "Headwear": "or none", "Outerwear": "or none", "Top": "", "Bottom": "", "Footwear": "", "Accessories": "or none", "Signature items": "always carried, or none", "Color palette": "2-3 colors"}},
       "personality": "concise personality traits",
       "tags": ["alias:every other name or nickname the story uses", "faction:group or side, if any"]
     }}
@@ -283,6 +284,7 @@ Tone: {tone or "cinematic, atmospheric"}
 
 Keep descriptions visual and concrete. Characters, locations and items should be reusable across scenes.
 Tags are short 'key:value' labels in English keys (alias, faction, type); leave out a tag you have nothing for.
+Each character's "look" is its fixed sheet in English (one default outfit), specific enough that no two characters could be confused.
 FINAL CHECK before responding: beats.length == {chunk_beats}. If not, fix it."""
 
 
@@ -315,7 +317,7 @@ def story_language_rule(text: str | None) -> str:
         return ""
     return (
         f"LANGUAGE: write titles, logline, beat and scene descriptions, action, dialogue, roles and "
-        f"personality in {lang}. Write appearance and location/item descriptions (used for image "
+        f"personality in {lang}. Write appearance/look and location/item descriptions (used for image "
         "generation) in English. Keep names as given.\n"
     )
 
@@ -363,7 +365,7 @@ def source_outline_block(summaries: list[str]) -> str:
     lang = guess_language(" ".join(summaries))
     language_rule = (
         f"LANGUAGE: write the title, logline, beat titles, beat descriptions, roles and personality in "
-        f"{lang}. Write appearance and location/item descriptions (used for image generation) in English. "
+        f"{lang}. Write appearance/look and location/item descriptions (used for image generation) in English. "
         "Keep names exactly as in the outline."
         if lang and lang != "English"
         else "Keep names exactly as in the outline."
