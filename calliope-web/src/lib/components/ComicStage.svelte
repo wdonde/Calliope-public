@@ -145,6 +145,31 @@
 	}
 
 	const rendered = $derived(panels.filter((p) => p.image_path).length);
+
+	/** Keep a bubble (centred on x/y, 0..1) fully inside its frame, as the export does. */
+	function keepInside(node: HTMLElement, xy: [number, number]) {
+		let current = xy;
+		const apply = () => {
+			const frame = node.parentElement;
+			if (!frame) return;
+			const [w, h] = [frame.clientWidth, frame.clientHeight];
+			const [bw, bh] = [node.offsetWidth, node.offsetHeight];
+			const clamp = (v: number, half: number, size: number) => Math.min(Math.max(v, half + 4), size - half - 4);
+			node.style.left = `${clamp(current[0] * w, bw / 2, w)}px`;
+			node.style.top = `${clamp(current[1] * h, bh / 2, h)}px`;
+		};
+		const observer = new ResizeObserver(apply);
+		observer.observe(node.parentElement!);
+		observer.observe(node);
+		apply();
+		return {
+			update(next: [number, number]) {
+				current = next;
+				apply();
+			},
+			destroy: () => observer.disconnect(),
+		};
+	}
 </script>
 
 <svelte:window onpointermove={moveDrag} onpointerup={endDrag} />
@@ -228,7 +253,7 @@
 						class="bubble"
 						class:oval={isManga}
 						class:dragging={drag?.panel.id === p.id && drag?.index === n}
-						style="left: {xy[0] * 100}%; top: {xy[1] * 100}%"
+						use:keepInside={xy}
 						title={b.speaker}
 						role="button"
 						tabindex="-1"
@@ -388,6 +413,8 @@
 	.bubble {
 		position: absolute;
 		transform: translate(-50%, -50%);
+		/* Own width, not the space left of `left`, so bubbles near the edge keep their shape. */
+		width: max-content;
 		max-width: 46%;
 		padding: 6px 12px;
 		border: 2px solid #000;
@@ -402,6 +429,7 @@
 		cursor: grab;
 	}
 	.bubble.oval {
+		max-width: 58%;
 		border-radius: 50%;
 		padding: 10px 16px;
 	}

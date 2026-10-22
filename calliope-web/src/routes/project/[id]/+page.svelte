@@ -168,7 +168,9 @@
 		</div>
 	{:else}
 		<div class="workspace-bar">
-			<span class="stage-label">{STAGE_LABELS[activeTab]}</span>
+			<span class="stage-label">
+				{activeTab === 'video' && projectFormat !== 'video' ? `4 · ${t('nav.panels')}` : STAGE_LABELS[activeTab]}
+			</span>
 			<ActivityStatus {projectId} />
 			<Button
 				variant="secondary"
