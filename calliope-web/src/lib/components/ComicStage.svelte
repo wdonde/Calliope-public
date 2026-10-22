@@ -7,6 +7,7 @@
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import ActivityInline from '$lib/components/ActivityInline.svelte';
 	import MangaPages from '$lib/components/MangaPages.svelte';
+	import ColorizeDialog from '$lib/components/ColorizeDialog.svelte';
 	import { toStore } from 'svelte/store';
 	import { assetUrl, comicApi, type Bubble, type Panel } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
@@ -43,6 +44,8 @@
 	let confirmReplan = $state(false);
 	let openPrompt = $state<number | null>(null);
 	let promptDrafts = $state<Record<number, string>>({});
+	let colorizePath = $state<string | null>(null);
+	let colorizeOpen = $state(false);
 
 	async function refresh() {
 		await client.invalidateQueries({ queryKey: ['panels', projectId] });
@@ -289,6 +292,12 @@
 				<button type="button" class="link" onclick={() => (openPrompt = openPrompt === p.id ? null : p.id)}>
 					{t('comic.prompt')}
 				</button>
+				{#if p.image_path}
+					<button type="button" class="link" onclick={() => {
+						colorizePath = p.image_path;
+						colorizeOpen = true;
+					}}>{t('colorize.button')}</button>
+				{/if}
 				<span class="seed">seed {p.seed}</span>
 			</div>
 			{#if openPrompt === p.id}
@@ -308,6 +317,8 @@
 		</Card>
 	{/each}
 </div>
+
+<ColorizeDialog bind:open={colorizeOpen} imagePath={colorizePath} {projectId} />
 
 <ConfirmDialog
 	bind:open={confirmReplan}

@@ -209,6 +209,11 @@ export interface LibraryAsset {
 	used_in?: { id: number; title: string; outdated?: boolean }[];
 }
 
+export const colorizeApi = {
+	start: (payload: { image_path: string; notes: string; project_id?: number | null; character_ids?: number[] | null }) =>
+		api<{ job_id: number }>('/api/colorize', { method: 'POST', body: JSON.stringify(payload) }),
+};
+
 export const assetLibraryApi = {
 	list: (params: { kind?: AssetKind; q?: string; tag?: string } = {}) => {
 		const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
@@ -666,6 +671,7 @@ export const workflows = {
 };
 
 export const jobsApi = {
+	get: (id: number) => api<Job>(`/api/jobs/${id}`),
 	list: (projectId?: number) =>
 		api<Job[]>(`/api/jobs${projectId != null ? `?project_id=${projectId}` : ''}`),
 	retry: (id: number) => api<Job>(`/api/jobs/${id}/retry`, { method: 'POST' }),

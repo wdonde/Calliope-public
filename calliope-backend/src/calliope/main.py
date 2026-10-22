@@ -18,6 +18,7 @@ from calliope.db import get_db, migrate_db, rebase_stale_asset_paths
 from calliope.queue.worker import queue_worker
 from calliope.routers import (
     asset_library,
+    colorize as colorize_router,
     activity as activity_router,
     agent,
     assets,
@@ -136,6 +137,7 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
     app.include_router(scenes.router, prefix="/api/projects", tags=["scenes"])
     app.include_router(assets.router, prefix="/api", tags=["assets"])
     app.include_router(asset_library.router, prefix="/api", tags=["asset-library"])
+    app.include_router(colorize_router.router, prefix="/api", tags=["colorize"])
     app.include_router(workflows.router, prefix="/api/workflows", tags=["workflows"])
     app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
     app.include_router(playground.router, prefix="/api/playground", tags=["playground"])

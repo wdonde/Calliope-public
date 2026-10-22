@@ -6,6 +6,7 @@
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import AttachToProject from '$lib/components/AttachToProject.svelte';
 	import LibraryAssets from '$lib/components/LibraryAssets.svelte';
+	import ColorizeDialog from '$lib/components/ColorizeDialog.svelte';
 	import ImageLightbox from '$lib/components/ImageLightbox.svelte';
 	import SafeMedia from '$lib/components/SafeMedia.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -17,6 +18,8 @@
 	const client = useQueryClient();
 	// Saved project assets (characters, locations, items) or loose Playground media.
 	let section = $state<'assets' | 'media'>('assets');
+	let colorizePath = $state<string | null>(null);
+	let colorizeOpen = $state(false);
 
 	const mediaQuery = createQuery({
 		queryKey: ['library-media'],
@@ -232,6 +235,12 @@
 						<Button variant="secondary" onclick={() => (attachItem = item)}>
 							{t('library.addToProject')}
 						</Button>
+						{#if item.kind === 'image'}
+							<Button variant="ghost" onclick={() => {
+								colorizePath = item.path;
+								colorizeOpen = true;
+							}}>{t('colorize.button')}</Button>
+						{/if}
 					</div>
 				</div>
 			{/each}
@@ -251,6 +260,8 @@
 	{/if}
 	{/if}
 </main>
+
+<ColorizeDialog bind:open={colorizeOpen} imagePath={colorizePath} />
 
 {#if preview}
 	<ImageLightbox
