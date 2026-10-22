@@ -45,6 +45,9 @@ LOOK_HINT = {
     "item": ("description", "visual description for image generation: shape, size, material, colors, "
              "distinctive details (30-50 words)"),
 }
+GRAY_HINT = ("The pictures are black-and-white: they show shapes, faces and clothing, not colors. Take the colors "
+             "from the notes; where the notes say nothing, choose fitting colors. Always write explicit colors "
+             "(skin tone, eye color, hair color, every garment) so the look stays the same in color.")
 TAG_KEYS = {
     "character": "alias (other names or nicknames), role (protagonist, villain, mentor, ...)",
     "location": "type (interior, exterior, landscape, vehicle interior), region (world or area), alias",
@@ -110,6 +113,19 @@ def _data_url(path: str, size: int = 768) -> str | None:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+def is_grayscale(path: str) -> bool:
+    """True for black-and-white pictures (manga pages, ink drawings, grey photos)."""
+    try:
+        im = Image.open(path).convert("RGB")
+    except OSError:
+        return False
+    im.thumbnail((128, 128))
+    sat = im.convert("HSV").getchannel("S")
+    hist = sat.histogram()
+    colored = sum(hist[40:])  # pixels with noticeable saturation
+    return colored / max(1, sum(hist)) < 0.03
+
+
 def keep_images(project_id: int, kind: str, paths: list[str]) -> list[str]:
     """Copy the user's pictures next to the project, so the upload area can be cleaned."""
     dest = Path(settings.assets_dir) / str(project_id) / "refs" / f"{kind}-{int(time.time() * 1000)}"
@@ -163,6 +179,7 @@ Name: {name}
 {f"Context (the story and what is known so far -- stay true to it): {context[:2500]}" if context.strip() else ""}
 User notes (any language): {prompt or '(none)'}
 {f'The {len(images)} attached picture(s) show this {kind}; describe what they show, and let the notes override them.' if images else ''}
+{GRAY_HINT if images and all(is_grayscale(p) for p in images) else ''}
 
 Write in English:
 {ask}
@@ -277,6 +294,10 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
         prompt = item_image_prompt(entity)
         if refs:
             prompt += " Show the same object as the reference picture(s): same shape, colors and details."
+    if refs and all(is_grayscale(p) for p in images):
+        # Ink/manga references would otherwise pull the render into black-and-white.
+        prompt += (" The reference picture(s) are black-and-white line art: take only shapes and features from "
+                   "them and render in full color, with exactly the colors written above.")
     conn = get_db(settings.db_path)
     try:
         wf_json = json.loads(conn.execute("SELECT workflow_json FROM workflows WHERE id = ?", (wf,)).fetchone()[0])

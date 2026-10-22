@@ -115,6 +115,8 @@ export const de: Dict = {
 	'assets.new.fromExisting': 'Choose from images already in Calliope',
 	'assets.new.hideExisting': 'Hide images in Calliope',
 	'assets.new.noExisting': 'No uploaded or generated images yet.',
+	'assets.new.bwTitle': 'Black-and-white picture',
+	'assets.new.bwHint': 'Black-and-white pictures show shapes, not colors: name the colors in the description (skin, eyes, hair, each garment). Missing colors are chosen and written into the sheet; the render comes out in full color.',
 	'assets.new.pasteButton': 'Paste screenshot',
 	'assets.new.clipboardEmpty': 'No image in the clipboard — take a screenshot (Win+Shift+S) or copy an image first.',
 	'assets.new.clipboardBlocked': 'The browser blocked clipboard access — press Ctrl+V in this window instead.',

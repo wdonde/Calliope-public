@@ -42,6 +42,30 @@
 	}
 
 	let dragging = $state(false);
+	// Pictures without color (manga pages, ink drawings): the colors must come from the text.
+	let gray = $state<Record<string, boolean>>({});
+	const anyGray = $derived(pics.some((p) => gray[p.src]));
+
+	function checkGray(e: Event, src: string) {
+		const img = e.currentTarget as HTMLImageElement;
+		try {
+			const c = document.createElement('canvas');
+			c.width = c.height = 48;
+			const g = c.getContext('2d', { willReadFrequently: true });
+			if (!g) return;
+			g.drawImage(img, 0, 0, 48, 48);
+			const d = g.getImageData(0, 0, 48, 48).data;
+			let colored = 0;
+			for (let i = 0; i < d.length; i += 4) {
+				const max = Math.max(d[i], d[i + 1], d[i + 2]);
+				const min = Math.min(d[i], d[i + 1], d[i + 2]);
+				if (max > 0 && (max - min) / max > 0.16) colored++;
+			}
+			gray = { ...gray, [src]: colored / (d.length / 4) < 0.03 };
+		} catch {
+			// unreadable image (e.g. cross-origin): no badge
+		}
+	}
 
 	/** "Paste screenshot": read an image straight from the clipboard (Win+Shift+S, Print, copy image). */
 	async function pasteFromClipboard() {
@@ -98,7 +122,8 @@
 >
 	{#each pics as p, i (p.src)}
 		<figure>
-			<img src={p.src} alt="" />
+			<img src={p.src} alt="" onload={(e) => checkGray(e, p.src)} />
+			{#if gray[p.src]}<span class="bw" title={t('assets.new.bwTitle')}>B/W</span>{/if}
 			<button type="button" aria-label={t('common.delete')} onclick={() => (pics = pics.filter((_, k) => k !== i))}>×</button>
 		</figure>
 	{/each}
@@ -113,6 +138,7 @@
 		</button>
 	{/if}
 </div>
+{#if anyGray}<p class="bw-hint">{t('assets.new.bwHint')}</p>{/if}
 <div class="pick-row">
 	<button type="button" class="link" onclick={() => (browsing = !browsing)}>
 		{browsing ? t('assets.new.hideExisting') : t('assets.new.fromExisting')}
@@ -187,6 +213,22 @@
 		font-size: 11px;
 		padding: 4px;
 		text-align: center;
+	}
+	.bw {
+		position: absolute;
+		left: 4px;
+		bottom: 4px;
+		background: rgba(0, 0, 0, 0.75);
+		color: #fff;
+		font-size: 10px;
+		font-weight: 700;
+		padding: 1px 5px;
+		border-radius: 4px;
+	}
+	.bw-hint {
+		margin: 6px 0 0;
+		font-size: 12px;
+		color: var(--warning, #e0a040);
 	}
 	.pick-row {
 		display: flex;

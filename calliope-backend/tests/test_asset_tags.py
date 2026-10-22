@@ -332,3 +332,37 @@ def test_draft_storyline_writes_characters_as_sheets(client, monkeypatch):
     assert chars["Mia"]["appearance"] == ("CHARACTER INFORMATION\nName: Mia\nAge: 17\nGender: female\n"
                                           "Hair: chestnut ponytail\n\nOUTFIT\nHeadwear: none\nOuterwear: yellow rain jacket")
     assert chars["Old Tom"]["appearance"] == "a bearded fisherman"  # prose answers still work
+
+
+def test_black_and_white_pictures_get_explicit_colors_and_a_color_render(client, monkeypatch):
+    import calliope.agent.asset_create as ac
+    from calliope.config import settings
+
+    seen = []
+
+    async def fake_llm(messages, temperature=0.4, role=None):
+        seen.append(messages[1]["content"][0]["text"])
+        return {"look": {"Hair": "black, spiky", "Color palette": "red, black"}, "tags": []}
+
+    monkeypatch.setattr(ac, "generate_structured", fake_llm)
+    wf = {"10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+          "50": {"class_type": "LoadImage", "inputs": {"image": ""}, "_meta": {"title": "Ref (Input:image)"}},
+          "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}
+    client.post("/api/workflows", json={"name": "Klein 1 ref", "kind": "image", "workflow_json": wf})
+    pid = client.post("/api/projects", json={"title": "BW"}).json()["id"]
+    up = Path(settings.assets_dir) / "uploads"
+    up.mkdir(parents=True, exist_ok=True)
+    ink = up / "manga.png"
+    Image.new("L", (60, 90), 230).convert("RGB").save(ink)
+    r = client.post(f"/api/projects/{pid}/assets/new", json={"kind": "character", "name": "Kai", "image_paths": [str(ink)]}).json()
+    assert "black-and-white" in seen[0] and "explicit colors" in seen[0]
+    job = client.get(f"/api/jobs/{r['job_id']}").json()
+    assert "render in full color" in (job.get("payload") or json.loads(job["payload_json"]))["prompt"]
+
+    color = up / "photo.png"
+    Image.new("RGB", (60, 90), (200, 60, 40)).save(color)
+    seen.clear()
+    r2 = client.post(f"/api/projects/{pid}/assets/new", json={"kind": "character", "name": "Ava", "image_paths": [str(color)]}).json()
+    assert "black-and-white" not in seen[0]
+    job2 = client.get(f"/api/jobs/{r2['job_id']}").json()
+    assert "full color" not in (job2.get("payload") or json.loads(job2["payload_json"]))["prompt"]
