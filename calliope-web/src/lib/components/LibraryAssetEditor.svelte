@@ -167,16 +167,13 @@
 						</datalist>
 					</label>
 				{/if}
-				<label>
-					<span class="field-label">{t('assets.edit.tags')}</span>
-					{#if isChar}
-						<!-- Character tags are read from the sheet below (alias and role included). -->
-						<input class="field-input" value={tags} readonly placeholder="alias:Ripper Eddy, faction:Union Guard" />
-						<span class="muted small">{t('assets.tagsFromSheet')}</span>
-					{:else}
+				{#if !isChar}
+					<!-- A character's tags are read from its Character information; it has no tag field. -->
+					<label>
+						<span class="field-label">{t('assets.edit.tags')}</span>
 						<input class="field-input" bind:value={tags} placeholder="alias:Ripper Eddy, faction:Union Guard" />
-					{/if}
-				</label>
+					</label>
+				{/if}
 				{#each textFields as f (f.key)}
 					<label>
 						<span class="field-label">
