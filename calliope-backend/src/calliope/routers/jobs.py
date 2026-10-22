@@ -22,6 +22,7 @@ from calliope.models.schemas import (
     PreviewPromptRequest,
 )
 from calliope.queue.manager import queue_manager
+from calliope.queue.overview import overview
 
 router = APIRouter()
 
@@ -189,6 +190,12 @@ async def create_job(payload: JobCreate, project_id: int = Query(...)) -> dict[s
         },
     )
     return _job_public(job)
+
+
+@router.get("/active")
+async def active_jobs(project_id: int | None = None) -> dict[str, Any]:
+    """Running, queued (in queue order) and recently ended jobs, labelled for people."""
+    return overview(project_id)
 
 
 @router.get("/{job_id}")

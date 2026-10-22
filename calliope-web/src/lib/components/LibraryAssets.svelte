@@ -10,6 +10,7 @@
 	import { toast } from '$lib/toast';
 	import AssetTags from '$lib/components/AssetTags.svelte';
 	import NewAssetDialog from '$lib/components/NewAssetDialog.svelte';
+	import RenderQueue from '$lib/components/RenderQueue.svelte';
 	import LibraryAssetEditor from '$lib/components/LibraryAssetEditor.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
@@ -79,6 +80,8 @@
 		void act(() => assetLibraryApi.addToProject(a.id, pid), t('assets.libraryAddedTo', { name: a.name, project: title }));
 	}
 </script>
+
+<div class="queue"><RenderQueue /></div>
 
 <div class="toolbar">
 	<div class="kinds">
@@ -177,6 +180,9 @@
 />
 
 <style>
+	.queue {
+		margin-bottom: 16px;
+	}
 	.toolbar {
 		display: flex;
 		gap: 10px;

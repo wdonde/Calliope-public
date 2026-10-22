@@ -20,6 +20,7 @@
 	import LibraryPicker from '$lib/components/LibraryPicker.svelte';
 	import NewAssetDialog from '$lib/components/NewAssetDialog.svelte';
 	import LibraryMatches from '$lib/components/LibraryMatches.svelte';
+	import RenderQueue from '$lib/components/RenderQueue.svelte';
 	import ImageLightbox from '$lib/components/ImageLightbox.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -199,6 +200,9 @@
 		toStore(() => ({
 			queryKey: ['jobs', projectId],
 			queryFn: () => jobsApi.list(projectId),
+			// Keep the cards' "generating" state current while something renders.
+			refetchInterval: (q: { state: { data?: Job[] } }) =>
+				(q.state.data ?? []).some((j) => j.status === 'pending' || j.status === 'running') ? 4000 : false,
 		})),
 	);
 
@@ -760,6 +764,8 @@
 		client.invalidateQueries({ queryKey: ['jobs'] });
 	}}
 />
+
+<div class="matches-wrap"><RenderQueue {projectId} /></div>
 
 {#if tab === 'characters'}
 	<div class="matches-wrap"><LibraryMatches {projectId} /></div>

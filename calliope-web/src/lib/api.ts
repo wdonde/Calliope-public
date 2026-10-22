@@ -670,8 +670,35 @@ export const workflows = {
 	get: (id: number) => api<Workflow>(`/api/workflows/${id}`),
 };
 
+export interface QueueJob {
+	id: number;
+	status: string;
+	kind: string;
+	project_id: number;
+	project: string | null;
+	/** What the job makes, e.g. "Character sheet · Reed", "Panel #12". */
+	label: string;
+	/** Place in the queue (1 = next), for queued jobs. */
+	position: number | null;
+	created_at: string;
+	started_at: string | null;
+	completed_at: string | null;
+	error: string | null;
+	output: string | null;
+}
+
+export interface QueueOverview {
+	running: QueueJob[];
+	queued: QueueJob[];
+	recent: QueueJob[];
+	/** Jobs of other projects in the same queue (they run first or in between). */
+	elsewhere: { running: number; queued: number };
+}
+
 export const jobsApi = {
 	get: (id: number) => api<Job>(`/api/jobs/${id}`),
+	active: (projectId?: number) =>
+		api<QueueOverview>(`/api/jobs/active${projectId != null ? `?project_id=${projectId}` : ''}`),
 	list: (projectId?: number) =>
 		api<Job[]>(`/api/jobs${projectId != null ? `?project_id=${projectId}` : ''}`),
 	retry: (id: number) => api<Job>(`/api/jobs/${id}/retry`, { method: 'POST' }),
