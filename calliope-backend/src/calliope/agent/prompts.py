@@ -164,7 +164,7 @@ Tone: {tone or "cinematic, atmospheric"}
       "name": "Name",
       "role": "protagonist|antagonist|supporting",
       "age": "approximate age",
-      "appearance": "concise visual description for image generation",
+      "appearance": "fixed look for image generation: age, build, face, hair color and style, one distinctive mark, and ONE default outfit incl. headwear -- specific enough that no two characters could be confused",
       "personality": "concise personality traits"
     }}
   ],
@@ -261,7 +261,7 @@ Tone: {tone or "cinematic, atmospheric"}
       "name": "Name",
       "role": "protagonist|antagonist|supporting",
       "age": "approximate age",
-      "appearance": "concise visual description for image generation",
+      "appearance": "fixed look for image generation: age, build, face, hair color and style, one distinctive mark, and ONE default outfit incl. headwear -- specific enough that no two characters could be confused",
       "personality": "concise personality traits"
     }}
   ],
@@ -501,7 +501,8 @@ where. Rules:
    visual anchor taken from their description above (hair, outfit, one distinguishing
    feature), e.g. "MIA, a teenage girl with a chestnut ponytail and yellow rain jacket,".
    Later mentions in the same scene use the plain name. Never invent new appearance details —
-   reuse these anchors so every clip matches the same face and wardrobe.
+   reuse these anchors so every clip matches the same face and wardrobe. Outfit and headwear
+   stay as described unless the story makes the character change them — then say so plainly.
 3. ENVIRONMENT & CONTINUITY. Concrete set details, props, weather, time-of-day — consistent
    with the location description and with earlier scenes set in the same location.
 4. LIGHTING & MOOD. Named light sources, color palette, emotional tone of the moment.
@@ -633,7 +634,8 @@ where. Rules:
    visual anchor taken from their description above (hair, outfit, one distinguishing
    feature), e.g. "MIA, a teenage girl with a chestnut ponytail and yellow rain jacket,".
    Later mentions in the same scene use the plain name. Never invent new appearance details —
-   reuse these anchors so every clip matches the same face and wardrobe.
+   reuse these anchors so every clip matches the same face and wardrobe. Outfit and headwear
+   stay as described unless the story makes the character change them — then say so plainly.
 3. ENVIRONMENT & CONTINUITY. Concrete set details, props, weather, time-of-day — consistent
    with the location description and with earlier scenes set in the same location.
 4. LIGHTING & MOOD. Named light sources, color palette, emotional tone of the moment.

@@ -61,7 +61,8 @@ def test_plan_builds_english_prompt_bubbles_and_caption(client, tmp_path):
                              "x": None, "y": None}]
     assert p["caption"] == "RUINENWOHNUNG – NACHT"
     assert (p["width"], p["height"]) == (896, 1152)
-    assert len(p["refs"]) == 1 and Path(p["refs"][0]).exists()  # cropped head view
+    assert len(p["refs"]) == 2 and all(Path(r).exists() for r in p["refs"])  # body + face crops
+    assert "reference images 1 (full body) and 2 (face)" in p["prompt"]
 
 
 def test_bubble_edit_and_webtoon_export(client, tmp_path):
@@ -241,3 +242,16 @@ def test_manga_export_leaves_unrendered_panels_blank_and_layout_input_is_validat
     blank = _manga_page(page, {panel["id"]: {**panel, "image_path": None, "bubbles": [], "caption": None,
                                              "number": 1}}, True, placeholders=False)
     assert blank.getpixel((620, 877)) == (255, 255, 255)  # empty frame, no grey "#1" box
+
+
+def test_characters_are_matched_by_name_not_title():
+    from calliope.agent.comic import _named_in, _reference_hint
+
+    assert _named_in("Reed rubs his eyes.", "Captain Edward 'Ripper Eddy' Reed")
+    assert not _named_in("The captain of another ship waves.", "Captain Edward 'Ripper Eddy' Reed")
+    assert _named_in("The mediator nods.", "Der Vermittler") is False  # only real name parts count
+    reed = {"name": "Reed", "appearance": "grey buzz cut, olive field jacket", "sheet_path": "s.png"}
+    _, keep = _reference_hint("Reed stands at the crater.", [reed], [])
+    _, helmet = _reference_hint("Reed stands at the crater in his helmet.", [reed], ["Malone"])
+    assert "same face, hair and outfit" in keep
+    assert "clothing as described here" in helmet and "(Malone) stays small in the background" in helmet

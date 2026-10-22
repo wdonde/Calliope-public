@@ -96,13 +96,60 @@ def _sheet_crop(project_id: int, sheet: str, view: str) -> str:
     return str(target)
 
 
-def _panel_characters(desc: str, scene_chars: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Characters named in the shot; the scene's only character when none is named."""
-    with_sheet = [c for c in scene_chars if c.get("sheet_path") and Path(c["sheet_path"]).exists()]
-    named = [c for c in with_sheet if c["name"].split()[0].lower() in desc.lower()]
-    if named:
-        return named[:2]
-    return with_sheet if len(scene_chars) == 1 else []
+# Words in a name that say nothing about who it is (titles, ranks, articles).
+NAME_FILLERS = {
+    "captain", "capt", "lieutenant", "lt", "private", "pvt", "sergeant", "sgt", "major", "colonel",
+    "general", "commander", "admiral", "corporal", "officer", "agent", "doctor", "dr", "mr", "mrs",
+    "ms", "miss", "sir", "lady", "lord", "king", "queen", "prince", "princess", "professor", "prof",
+    "the", "der", "die", "das", "le", "la", "el", "von", "van", "de",
+}
+# Clothing that overrides the reference outfit when a shot asks for it.
+OUTFIT_WORDS = ("helmet", "hat", "cap", "hood", "mask", "visor", "armor", "armour", "spacesuit",
+                "gown", "dress", "robe", "cloak")
+
+
+def _named_in(desc: str, name: str) -> bool:
+    """Whether the description mentions the character by a real part of the name."""
+    keys = [w for w in re.findall(r"[^\W\d_]+", name.lower()) if len(w) > 2 and w not in NAME_FILLERS]
+    text = desc.lower()
+    return any(re.search(rf"\b{re.escape(k)}\b", text) for k in keys)
+
+
+def _panel_characters(desc: str, scene_chars: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """(characters in focus with a sheet -- at most 2 --, names of everyone else in the shot).
+    With nobody named, the scene's only character is in focus."""
+    named = [c for c in scene_chars if _named_in(desc, c["name"])]
+    if not named and len(scene_chars) == 1:
+        named = scene_chars
+    focus = [c for c in named if c.get("sheet_path") and Path(c["sheet_path"]).exists()][:2]
+    others = [c["name"] for c in named if c not in focus]
+    return focus, others
+
+
+def _reference_hint(desc: str, who: list[dict[str, Any]], others: list[str]) -> tuple[list[tuple[str, str]], str]:
+    """Which sheet views go in as references, and the sentence that binds them.
+    One person gets body and face; two get one view each."""
+    def keeps(c: dict[str, Any]) -> str:
+        own = (c.get("appearance") or "").lower()
+        changed = [w for w in OUTFIT_WORDS if re.search(rf"\b{w}s?\b", desc.lower()) and w not in own]
+        return "same face and hair; clothing as described here" if changed else "same face, hair and outfit"
+
+    if len(who) == 1:
+        c = who[0]
+        views = [(c["sheet_path"], "front"), (c["sheet_path"], "head")]
+        hint = (f"{c['name']} looks exactly like reference images 1 (full body) and 2 (face) -- {keeps(c)} -- "
+                "shown once in a new pose.")
+    else:
+        views, parts = [], []
+        for k, c in enumerate(who):
+            views.append((c["sheet_path"], "front"))
+            parts.append(f"{c['name']} looks exactly like reference image {k + 1} ({keeps(c)}).")
+        hint = " ".join(parts)
+    if who:
+        hint += f" Exactly {len(who)} named {'person' if len(who) == 1 else 'people'} in focus, each shown once."
+    if others:
+        hint += f" Anyone else ({', '.join(others)}) stays small in the background, faces not in focus."
+    return views, hint + " " if hint else ""
 
 
 def _caption(heading: str | None) -> str:
@@ -132,14 +179,9 @@ async def plan_panels(project_id: int, *, replan: bool = False) -> list[dict[str
                     continue
                 raw = clip.get("description") or scene.get("action") or ""
                 desc = await _to_english(_clean_description(raw))
-                who = _panel_characters(desc, chars)
-                view = "head" if clip.get("shot_size") == "closeUp" else "front"
-                refs = [_sheet_crop(project_id, c["sheet_path"], view) for c in who]
-                ref_hint = " ".join(
-                    f"{c['name']} looks exactly like reference image {k + 1} (same face, hair and outfit), "
-                    "shown once in a new pose." for k, c in enumerate(who))
-                if who:
-                    ref_hint += f" Exactly {len(who)} named {'person' if len(who) == 1 else 'people'} in focus. "
+                who, others = _panel_characters(desc, chars)
+                views, ref_hint = _reference_hint(desc, who, others)
+                refs = [_sheet_crop(project_id, sheet, view) for sheet, view in views]
                 covered = clip.get("dialog_lines_covered") or []
                 if isinstance(covered, str):
                     covered = json.loads(covered or "[]")

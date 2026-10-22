@@ -148,7 +148,8 @@ Locations:
 One flowing paragraph, present tense: who is where, poses, gestures, facial expressions,
 the key prop, the setting and its light. Describe moments that read as STILL images — no
 camera moves, no sounds. The first time a character appears in a scene, attach a short
-visual anchor from their description (hair, outfit, one distinguishing feature).
+visual anchor from their description (hair, outfit, one distinguishing feature). Outfit and
+headwear stay as described unless the story makes the character change them — then say so.
 
 === DIALOGUE (carries the story in a comic) ===
 Every line the scene needs, 'SPEAKER: line', one per line, in reading order. Comics lean on
@@ -212,7 +213,9 @@ Dialogue lines (verbatim, numbered):
    whole action, in reading order.
 2. Each description is ONE still image in English: framing, who is in it (with a short
    appearance anchor the first time), pose, facial expression, setting, light. No motion,
-   no camera moves, no text or speech bubbles in the description.
+   no camera moves, no text or speech bubbles in the description. Keep each character's
+   outfit and headwear from their description — no helmets, hats, masks or armor it lacks
+   unless the action says the character puts them on.
 3. shot_size is one of: wide, medium, closeUp, insert, overShoulder — vary it like a comic
    (establishing wide, reaction close-ups, detail inserts).
 4. duration_sec is always 1 (comics have no duration).
