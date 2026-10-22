@@ -210,3 +210,34 @@ def test_manga_layout_edit_preview_and_reset(client, tmp_path):
     assert r.status_code == 200 and r.content[:8] == b"\x89PNG\r\n\x1a\n"
     assert client.get(f"/api/projects/{pid}/comic/pages/3.png").status_code == 404
     assert client.delete(f"/api/projects/{pid}/comic/layout").json()["custom"] is False
+
+
+def test_new_first_panel_stays_first_when_page_one_is_full():
+    from calliope.agent import manga_layout as m
+
+    panels = [{"id": i, "shot_size": "medium", "scene_order": 1} for i in range(1, 8)]
+    pages = m.resolve(panels, [{"panels": [2, 3, 4, 5, 6, 7], "template": "6-grid"}])
+    assert [pg["panels"] for pg in pages] == [[1], [2, 3, 4, 5, 6, 7]]
+
+
+def test_manga_export_leaves_unrendered_panels_blank_and_layout_input_is_validated(client, tmp_path):
+    pid, _ = _comic_project(client, "manga", tmp_path)
+    panel = client.post(f"/api/projects/{pid}/panels/plan").json()[0]
+    assert client.put(f"/api/projects/{pid}/comic/layout", json={"pages": [{"panels": ["a"]}]}).status_code == 422
+    # A stored layout whose panels are gone (re-plan) no longer counts as custom.
+    client.put(f"/api/projects/{pid}/comic/layout", json={"pages": [{"panels": [panel["id"]], "template": "1-splash"}]})
+    conn = get_db(settings.db_path)
+    try:
+        conn.execute("UPDATE projects SET comic_layout = ? WHERE id = ?",
+                     (json.dumps({"pages": [{"panels": [999999], "template": "1-splash"}]}), pid))
+        conn.commit()
+    finally:
+        conn.close()
+    assert client.get(f"/api/projects/{pid}/comic/layout").json()["custom"] is False
+
+    from calliope.agent.comic import _manga_page
+
+    page = {"panels": [panel["id"]], "template": "1-splash"}
+    blank = _manga_page(page, {panel["id"]: {**panel, "image_path": None, "bubbles": [], "caption": None,
+                                             "number": 1}}, True, placeholders=False)
+    assert blank.getpixel((620, 877)) == (255, 255, 255)  # empty frame, no grey "#1" box

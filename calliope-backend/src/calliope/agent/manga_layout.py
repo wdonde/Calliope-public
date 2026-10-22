@@ -57,6 +57,8 @@ _t("6-grid", R([0.33, 0.34, 0.33], [C([0.5, 0.5]), C([0.5, 0.5]), C([0.5, 0.5])]
 _t("6-band", R([0.3, 0.4, 0.3], [C([0.5, 0.5]), None, C([0.33, 0.34, 0.33])]), 0.025)
 _t("6-climax", R([0.25, 0.25, 0.5], [None, C([0.4, 0.6]), C([0.55, 0.45], [None, R([0.5, 0.5])])]), 0.03)
 
+# A4 page at 150 dpi; the export renders and choose() scores on this geometry.
+PAGE = {"width": 1240, "height": 1754, "margin": 70, "gutter": 26}
 MAX_PER_PAGE = max(t["slots"] for t in TEMPLATES.values())
 PAGE_CAPACITY = 5.2
 SHOT_WEIGHT = {"wide": 1.6, "medium": 1.0, "overShoulder": 1.0, "closeUp": 0.8, "insert": 0.55}
@@ -186,7 +188,7 @@ def choose(panels: list[dict[str, Any]], previous: str | None = None) -> str:
     total_w = sum(weights)
     best, best_score = None, math.inf
     for name in templates_for(len(panels)):
-        polys = slots(name, 1240, 1754, margin=70, gutter=26)
+        polys = slots(name, PAGE["width"], PAGE["height"], margin=PAGE["margin"], gutter=PAGE["gutter"])
         areas = [_area(p) for p in polys]
         total_a = sum(areas)
         score = 0.0
@@ -231,7 +233,10 @@ def resolve(panels: list[dict[str, Any]], stored: list[dict[str, Any]] | None) -
             target = next((pg for pg in pages if before in pg["panels"]), pages[0])
             pos = target["panels"].index(before) + 1 if before in target["panels"] else 0
             if len(target["panels"]) >= MAX_PER_PAGE:
-                pages.insert(pages.index(target) + 1, {"panels": [pid], "template": None})
+                # A full page: the panel opens a page of its own, before the
+                # target when nothing precedes it, so reading order holds.
+                at = pages.index(target) + (0 if before is None else 1)
+                pages.insert(at, {"panels": [pid], "template": None})
             else:
                 target["panels"].insert(pos, pid)
                 if target.get("template") and TEMPLATES[target["template"]]["slots"] != len(target["panels"]):

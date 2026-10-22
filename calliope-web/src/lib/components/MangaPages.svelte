@@ -20,10 +20,11 @@
 	let { projectId, panels, rtl }: Props = $props();
 
 	const client = useQueryClient();
+	// Everything the automatic pages depend on, so changed panels re-resolve them.
+	const panelsKey = $derived(panels.map((p) => `${p.id}:${p.shot_size}:${p.scene_order}`).join(','));
 	const layoutQuery = createQuery(
 		toStore(() => ({
-			// The panel list is part of the key, so new or removed panels re-resolve the pages.
-			queryKey: ['comic-layout', projectId, panels.map((p) => p.id).join(',')],
+			queryKey: ['comic-layout', projectId, panelsKey],
 			queryFn: () => comicApi.layout(projectId),
 		})),
 	);
@@ -35,7 +36,7 @@
 		busy = true;
 		try {
 			const next = pages ? await comicApi.saveLayout(projectId, pages) : await comicApi.resetLayout(projectId);
-			client.setQueryData(['comic-layout', projectId, panels.map((p) => p.id).join(',')], next);
+			client.setQueryData(['comic-layout', projectId, panelsKey], next);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : String(err));
 		} finally {

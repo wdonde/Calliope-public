@@ -42,9 +42,14 @@ class ExportRequest(BaseModel):
     rtl: bool = True
 
 
+class LayoutPage(BaseModel):
+    panels: list[int]  # panel ids in reading order
+    template: str | None = None
+    auto: bool = False  # template re-chosen automatically
+
+
 class LayoutRequest(BaseModel):
-    # [{"panels": [panel ids in reading order], "template": name, "auto": bool}]
-    pages: list[dict[str, Any]]
+    pages: list[LayoutPage]
 
 
 @router.get("/projects/{project_id}/panels")
@@ -91,7 +96,7 @@ async def layout(project_id: int) -> dict[str, Any]:
 
 @router.put("/projects/{project_id}/comic/layout")
 async def put_layout(project_id: int, payload: LayoutRequest) -> dict[str, Any]:
-    return save_layout(project_id, payload.pages)
+    return save_layout(project_id, [pg.model_dump() for pg in payload.pages])
 
 
 @router.delete("/projects/{project_id}/comic/layout")
@@ -100,7 +105,8 @@ async def reset_layout(project_id: int) -> dict[str, Any]:
 
 
 @router.get("/projects/{project_id}/comic/pages/{index}.png")
-async def page_preview(project_id: int, index: int, rtl: bool = True) -> Response:
+def page_preview(project_id: int, index: int, rtl: bool = True) -> Response:
+    # Plain def: FastAPI runs it in the threadpool, so image work never blocks the loop.
     try:
         png = render_manga_page(project_id, index, rtl=rtl)
     except ValueError as exc:
