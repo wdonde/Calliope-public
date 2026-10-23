@@ -16,7 +16,18 @@
 	const promptsQuery = createQuery({ queryKey: ['prompts'], queryFn: promptsApi.list });
 	const projectsQuery = createQuery({ queryKey: ['projects'], queryFn: projectsApi.list });
 	const entries = $derived($promptsQuery.data ?? []);
-	const areas = $derived([...new Set(entries.map((e) => e.area))]);
+	// The process a project goes through, then what runs across it.
+	const PHASES = [
+		{ area: 'Story', step: 1 },
+		{ area: 'Script', step: 2 },
+		{ area: 'Assets', step: 3 },
+		{ area: 'Panels', step: 4 },
+		{ area: 'Video', step: 5 },
+		{ area: 'Agent', step: 0 },
+		{ area: 'Workflows', step: 0 },
+		{ area: 'Common', step: 0 },
+	];
+	const KIND_ORDER = ['system', 'instruction', 'image', 'note'];
 
 	let area = $state('');
 	let query = $state('');
@@ -57,6 +68,14 @@
 	}
 	const linkOf = (e: PromptEntry) =>
 		e.link.includes('{project}') ? (projectId === '' ? '' : e.link.replace('{project}', String(projectId))) : e.link;
+
+	const phases = $derived(
+		PHASES.map((ph) => {
+			const list = shown.filter((e) => e.area === ph.area);
+			const groups = KIND_ORDER.map((k) => ({ kind: k, items: list.filter((e) => e.kind === k) })).filter((g) => g.items.length);
+			return { ...ph, total: entries.filter((e) => e.area === ph.area).length, count: list.length, groups };
+		}),
+	);
 
 	let openKey = $state<string | null>(null);
 	let draft = $state('');
@@ -122,12 +141,6 @@
 
 	<div class="filters">
 		<input class="field-input search" placeholder={t('prompts.search')} bind:value={query} />
-		<div class="chips">
-			<button type="button" class="chip" class:on={!area} onclick={() => (area = '')}>{t('prompts.all')}</button>
-			{#each areas as a (a)}
-				<button type="button" class="chip" class:on={area === a} onclick={() => (area = a)}>{a}</button>
-			{/each}
-		</div>
 		<label class="check"><input type="checkbox" bind:checked={onlyEdited} /> {t('prompts.onlyEdited')}</label>
 		<label class="proj">
 			<span class="muted small">{t('prompts.linkProject')}</span>
@@ -137,8 +150,44 @@
 		</label>
 	</div>
 
-	<div class="list">
-		{#each shown as e (e.key)}
+	<nav class="flow" aria-label={t('prompts.flow')}>
+		<button type="button" class="step all" class:on={!area} onclick={() => (area = '')}>{t('prompts.all')}</button>
+		{#each phases.filter((ph) => ph.step) as ph, i (ph.area)}
+			{#if i}<span class="arrow">→</span>{/if}
+			<button type="button" class="step" class:on={area === ph.area} onclick={() => (area = area === ph.area ? '' : ph.area)}>
+				<span class="num">{ph.step}</span>{t(`prompts.phase.${ph.area}`)} <span class="cnt">{ph.total}</span>
+			</button>
+		{/each}
+		<span class="sep"></span>
+		{#each phases.filter((ph) => !ph.step) as ph (ph.area)}
+			<button type="button" class="step side" class:on={area === ph.area} onclick={() => (area = area === ph.area ? '' : ph.area)}>
+				{t(`prompts.phase.${ph.area}`)} <span class="cnt">{ph.total}</span>
+			</button>
+		{/each}
+	</nav>
+
+	{#each phases.filter((ph) => ph.count) as ph (ph.area)}
+		<section class="phase">
+			<h2>
+				{#if ph.step}<span class="num">{ph.step}</span>{/if}
+				{t(`prompts.phase.${ph.area}`)}
+				<span class="muted small">{t(`prompts.phaseHint.${ph.area}`)}</span>
+			</h2>
+			{#each ph.groups as g (g.kind)}
+				<h3 class="group">{t(`prompts.kind.${g.kind}`)} <span class="cnt">{g.items.length}</span></h3>
+				<div class="list">
+					{#each g.items as e (e.key)}
+						{@render entryCard(e)}
+					{/each}
+				</div>
+			{/each}
+		</section>
+	{:else}
+		<p class="muted">{$promptsQuery.isLoading ? '…' : t('prompts.none')}</p>
+	{/each}
+</section>
+
+{#snippet entryCard(e: PromptEntry)}
 			<article class="entry" class:open={openKey === e.key}>
 				<button type="button" class="row" onclick={() => toggle(e)}>
 					{#if e.image_path}
@@ -200,11 +249,7 @@
 					</div>
 				{/if}
 			</article>
-		{:else}
-			<p class="muted">{$promptsQuery.isLoading ? '…' : t('prompts.none')}</p>
-		{/each}
-	</div>
-</section>
+{/snippet}
 
 <style>
 	.filters {
@@ -217,24 +262,81 @@
 	.search {
 		max-width: 260px;
 	}
-	.chips {
+	.flow {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 4px;
+		align-items: center;
+		gap: 6px;
+		margin: 0 0 18px;
+		padding: 10px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
 	}
-	.chip {
-		padding: 3px 10px;
+	.step {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 12px;
 		border-radius: 999px;
 		border: 1px solid var(--border);
 		background: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		font-size: 12px;
+		font-size: 13px;
 	}
-	.chip.on {
+	.step.side {
+		border-style: dashed;
+	}
+	.step.on {
 		background: var(--accent);
 		border-color: var(--accent);
 		color: #fff;
+	}
+	.num {
+		display: inline-grid;
+		place-items: center;
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: var(--accent);
+		color: #fff;
+		font-size: 11px;
+		font-weight: 700;
+	}
+	.step.on .num {
+		background: #fff;
+		color: var(--accent);
+	}
+	.cnt {
+		font-size: 11px;
+		opacity: 0.7;
+	}
+	.arrow {
+		color: var(--text-muted);
+	}
+	.sep {
+		width: 1px;
+		height: 22px;
+		background: var(--border);
+		margin: 0 6px;
+	}
+	.phase {
+		margin-bottom: 22px;
+	}
+	.phase h2 {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 17px;
+		margin: 0 0 6px;
+		flex-wrap: wrap;
+	}
+	.group {
+		margin: 10px 0 6px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--text-secondary);
 	}
 	.check,
 	.proj {
