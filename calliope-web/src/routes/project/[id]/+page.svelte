@@ -10,7 +10,7 @@
 	import ScriptStage from '$lib/components/ScriptStage.svelte';
 	import QueueStage from '$lib/components/QueueStage.svelte';
 	import ComicStage from '$lib/components/ComicStage.svelte';
-	import DependencyMap from '$lib/components/DependencyMap.svelte';
+	import ProjectMapStage from '$lib/components/ProjectMapStage.svelte';
 	import ActivityStatus from '$lib/components/ActivityStatus.svelte';
 	import ActivityPanel from '$lib/components/ActivityPanel.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
@@ -195,7 +195,7 @@
 
 			<main class="stage" class:stage-fill={activeTab === 'video'}>
 				{#if activeTab === 'map'}
-					<DependencyMap {projectId} />
+					<ProjectMapStage {projectId} />
 				{:else if activeTab === 'story'}
 					{#if $storyQuery.isLoading}
 						<div class="card skel" aria-busy="true">

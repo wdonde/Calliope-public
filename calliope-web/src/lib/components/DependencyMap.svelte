@@ -313,13 +313,6 @@
 		confirmLabel={t('depmap.confirm')} onconfirm={() => confirm?.go()} />
 {/if}
 
-<header class="stage-head">
-	<div>
-		<h2>{t('depmap.title')}</h2>
-		<p class="muted">{t('depmap.lead')}</p>
-	</div>
-</header>
-
 <div class="toolbar">
 	<input class="field-input search" placeholder={t('depmap.search')} bind:value={search} />
 	<div class="legend">

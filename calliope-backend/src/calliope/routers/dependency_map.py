@@ -24,6 +24,13 @@ class Merge(BaseModel):
     drop_id: int
 
 
+@router.get("/projects/{project_id}/process-map")
+async def get_process_map(project_id: int) -> dict[str, Any]:
+    from calliope.agent import process_map
+
+    return process_map.build(project_id)
+
+
 @router.get("/projects/{project_id}/dependencies")
 async def get_dependencies(project_id: int, prompts: bool = False) -> dict[str, Any]:
     try:

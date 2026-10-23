@@ -7,6 +7,8 @@
 	 * built from.
 	 */
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { page } from '$app/state';
+	import { tick } from 'svelte';
 	import { assetUrl, projects as projectsApi, promptsApi, type PromptEntry } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
 	import { toast } from '$lib/toast';
@@ -80,6 +82,18 @@
 	let openKey = $state<string | null>(null);
 	let draft = $state('');
 	let saving = $state(false);
+
+	// ?key=story.system (from the process map) opens that prompt.
+	let opened = '';
+	$effect(() => {
+		const key = page.url.searchParams.get('key');
+		const e = entries.find((x) => x.key === key);
+		if (!e || opened === e.key) return;
+		opened = e.key;
+		openKey = e.key;
+		draft = e.text;
+		void tick().then(() => document.getElementById(`prompt-${e.key}`)?.scrollIntoView({ block: 'center' }));
+	});
 
 	function toggle(e: PromptEntry) {
 		openKey = openKey === e.key ? null : e.key;
@@ -188,7 +202,7 @@
 </section>
 
 {#snippet entryCard(e: PromptEntry)}
-			<article class="entry" class:open={openKey === e.key}>
+			<article class="entry" id={`prompt-${e.key}`} class:open={openKey === e.key}>
 				<button type="button" class="row" onclick={() => toggle(e)}>
 					{#if e.image_path}
 						<img class="thumb" src={assetUrl(e.image_path)} alt="" />

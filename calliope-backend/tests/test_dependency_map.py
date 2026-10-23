@@ -55,3 +55,21 @@ def test_unlink_link_and_merge(client):
     assert not any(f["type"] == "duplicate" and f["nodes"][0].startswith("character:") for f in g["findings"])
     assert client.post(f"/api/projects/{pid}/dependencies/merge", json={
         "kind": "character", "keep_id": ids["Mia"], "drop_id": ids["Mia"]}).status_code == 404
+
+
+def test_process_map_steps_status_and_start_calls(client):
+    pid = client.post("/api/projects", json={"title": "Flow", "format": "manga", "idea": "A pilot crashes."}).json()["id"]
+    g = client.get(f"/api/projects/{pid}/process-map").json()
+    steps = {s["key"]: s for s in g["steps"]}
+    assert [p["key"] for p in g["phases"]] == ["story", "assets", "script", "panels"]  # manga: no video phase
+    assert steps["story.draft"]["status"] == "ready" and steps["story.draft"]["start"]["confirm"]
+    assert steps["script.generate"]["status"] == "blocked"
+    assert steps["script.generate"]["needs"] == [{"what": "beats", "label": "story beats", "have": 0}]
+    assert steps["panels.plan"]["start"]["path"] == f"/api/projects/{pid}/panels/plan"
+    prompts = [p["key"] for p in steps["script.generate"]["prompts"]]
+    assert "script.comic_system" in prompts and "script.system" not in prompts
+    assert {"source": "story.draft", "target": "script.generate"} in [
+        {"source": e["source"], "target": e["target"]} for e in g["edges"]]
+    client.post(f"/api/projects/{pid}/characters", json={"name": "Mia"})
+    steps = {s["key"]: s for s in client.get(f"/api/projects/{pid}/process-map").json()["steps"]}
+    assert steps["assets.render"]["status"] == "ready" and steps["assets.render"]["progress"] == {"have": 0, "of": 1}

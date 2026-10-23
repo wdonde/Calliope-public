@@ -765,6 +765,39 @@ export const dependenciesApi = {
 		}),
 };
 
+/** One step of a project's process map (agent/process_map.py). */
+export interface ProcessStep {
+	key: string;
+	phase: string;
+	name: string;
+	description: string;
+	needs: { what: string; label: string; have: number }[];
+	produces: { what: string; label: string; have: number }[];
+	status: 'done' | 'partial' | 'ready' | 'blocked' | 'optional';
+	progress: { have: number; of: number } | null;
+	model: { role: string; name: string | null; model: string | null } | null;
+	workflows: { role: string; label: string; workflow_id: number | null; workflow: string | null; from_style: boolean }[];
+	prompts: { key: string; name: string; editable: boolean }[];
+	style: { id: number | null; name?: string } | null;
+	start: { method: string; path: string; body: Record<string, unknown> | null; confirm: string } | null;
+	page: string;
+}
+
+export interface ProcessMap {
+	format: string;
+	phases: { key: string; name: string; hint: string }[];
+	steps: ProcessStep[];
+	edges: { id: string; source: string; target: string; label: string }[];
+	counts: Record<string, number>;
+}
+
+export const processApi = {
+	get: (projectId: number) => api<ProcessMap>(`/api/projects/${projectId}/process-map`),
+	/** Start a step: the call its map entry names. */
+	start: (s: NonNullable<ProcessStep['start']>) =>
+		api<unknown>(s.path, { method: s.method, body: s.body ? JSON.stringify(s.body) : undefined }),
+};
+
 export const workflows = {
 	list: () => api<Workflow[]>('/api/workflows'),
 	analyze: (workflow_json: Record<string, unknown>) =>
