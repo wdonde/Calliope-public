@@ -95,12 +95,22 @@
 					});
 				});
 		});
+		// Several arrows with the same label from one step into one phase become one arrow to the lane.
+		const phaseOf = new Map(map.steps.map((s) => [s.key, s.phase]));
+		const bundles = new Map<string, typeof map.edges>();
 		for (const e of map.edges) {
+			const k = `${e.source}|${phaseOf.get(e.target)}|${e.label}`;
+			bundles.set(k, [...(bundles.get(k) ?? []), e]);
+		}
+		for (const group of bundles.values()) {
+			const e = group[0];
 			const from = map.steps.find((s) => s.key === e.source);
+			const target = group.length > 1 ? `phase:${phaseOf.get(e.target)}` : e.target;
 			out.push({
 				group: 'edges',
-				data: { id: e.id, source: e.source, target: e.target, label: e.label },
-				classes: from?.status === 'optional' ? 'soft' : '',
+				data: { id: group.length > 1 ? `${e.source}>${target}` : e.id, source: e.source, target, label: e.label,
+					steps: group.map((x) => x.target).join(',') },
+				classes: [from?.status === 'optional' ? 'soft' : '', group.length > 1 ? 'bundle' : ''].join(' '),
 			});
 		}
 		return out;
@@ -121,7 +131,8 @@
 		cy.elements().removeClass('picked near dim');
 		if (!selectedKey) return;
 		const n = cy.getElementById(selectedKey);
-		const near = n.connectedEdges();
+		const key = selectedKey;
+		const near = n.connectedEdges().union(cy.edges('.bundle').filter((e) => e.data('steps').split(',').includes(key)));
 		cy.nodes('.step').not(n).not(near.connectedNodes()).addClass('dim');
 		cy.edges().not(near).addClass('dim');
 		n.addClass('picked');
