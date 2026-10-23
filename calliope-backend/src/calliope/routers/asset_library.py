@@ -57,7 +57,7 @@ TABLES = {"character": "characters", "location": "locations", "item": "items"}
 FIELDS = {
     # Characters keep only their identity (CHARACTER INFORMATION); outfit,
     # personality and role belong to each project (role travels as a tag).
-    "character": ("alias", "role", "appearance", "consistency_prompt", "max_refs", "ref_indices"),
+    "character": ("alias", "role", "appearance", "consistency_prompt", "max_refs", "ref_indices", "sd_tags"),
     "location": ("description", "consistency_prompt", "max_refs", "ref_indices"),
     "item": ("description", "consistency_prompt", "max_refs", "ref_indices"),
 }
@@ -571,9 +571,9 @@ async def apply_library_identity(asset_id: int, project_id: int, character_id: i
     try:
         conn.execute(
             "UPDATE characters SET appearance = ?, tags = ?, source_images = ?, consistency_prompt = ?, "
-            "library_synced_at = ?, alias = ?, role = ? WHERE id = ?",
+            "library_synced_at = ?, alias = ?, role = ?, sd_tags = ? WHERE id = ?",
             (appearance, tags, json.dumps(list(dict.fromkeys(pictures))), prompt, a["updated_at"], alias, role,
-             character_id),
+             a["data"].get("sd_tags") or c.get("sd_tags"), character_id),
         )
         conn.commit()
         out = row_to_dict(conn.execute("SELECT * FROM characters WHERE id = ?", (character_id,)).fetchone())
@@ -629,3 +629,35 @@ async def library_prompt_from_pictures(asset_id: int) -> dict[str, Any]:
         return await prompt_from_pictures(a["kind"], {"name": a["name"], **a["data"]})
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/asset-library/{asset_id}/tags-from-pictures")
+async def library_tags_from_pictures(asset_id: int) -> dict[str, Any]:
+    """Danbooru tags read from the reference pictures (WD tagger, not saved):
+    ``tags`` -- who the character is (hair, eyes, body, marks; the library keeps
+    only these), ``outfit`` -- clothes and the rest the pictures show."""
+    import asyncio
+
+    from calliope.agent.asset_create import chosen_refs
+    from calliope.agent.tagger import split_identity, tags_from_pictures
+
+    conn = get_db(settings.db_path)
+    try:
+        row = conn.execute("SELECT * FROM library_assets WHERE id = ?", (asset_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Library asset not found")
+    a = _out(row)
+    # The rendered sheet (clean, in color) reads best; the own pictures add what it misses.
+    pictures = chosen_refs(a["data"]) or [p for p in [a.get("image_path"), *(a["data"].get("source_images") or [])]
+                                          if p and Path(p).is_file()]
+    if not pictures:
+        raise HTTPException(status_code=422, detail="This asset has no pictures to read tags from.")
+    try:
+        found = await asyncio.to_thread(tags_from_pictures, pictures)
+    except ImportError as exc:
+        raise HTTPException(status_code=501, detail="The tagger needs onnxruntime and numpy "
+                                                    "(pip install 'calliope[tagger]').") from exc
+    identity, outfit = split_identity(found["tags"])
+    return {"tags": identity, "outfit": outfit, "pictures": len(pictures)}

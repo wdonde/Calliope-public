@@ -434,6 +434,9 @@ async def migrate_db(db_path: Path) -> None:
     # Alias kept in its own field and linked into the sheet's Alias line.
     if "alias" not in char_cols:
         conn.execute("ALTER TABLE characters ADD COLUMN alias TEXT")
+    # Danbooru tags of the character's identity (agent/tagger.py), for SDXL render styles.
+    if "sd_tags" not in char_cols:
+        conn.execute("ALTER TABLE characters ADD COLUMN sd_tags TEXT")
     item_cols = {r[1] for r in conn.execute("PRAGMA table_info(items)").fetchall()}
     if "category" not in item_cols:
         conn.execute("ALTER TABLE items ADD COLUMN category TEXT")

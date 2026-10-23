@@ -133,6 +133,7 @@ class CharacterUpdate(BaseModel):
     tags: list[str] | None = None
     alias: str | None = None
     max_refs: int | None = Field(default=None, ge=1, le=6)
+    sd_tags: str | None = None
 
 
 class LocationCreate(BaseModel):

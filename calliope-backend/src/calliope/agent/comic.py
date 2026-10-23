@@ -286,7 +286,7 @@ def _image_node_ids(workflow_id: int) -> list[str]:
 def render_panels(project_id: int, *, panel_ids: list[int] | None = None, missing_only: bool = True,
                   reseed: bool = False) -> list[dict[str, Any]]:
     """Queue an image job per panel; returns the queued jobs."""
-    from calliope.render_styles import for_project, negative_values
+    from calliope.render_styles import character_tag_text, for_project, negative_values, uses_tags
 
     conn = get_db(settings.db_path)
     try:
@@ -295,6 +295,14 @@ def render_panels(project_id: int, *, panel_ids: list[int] | None = None, missin
         conn.close()
     style = for_project(project_id)
     head = _style_head(project, style)
+    tagged = []  # SDXL-like styles: characters named in a panel get their tags
+    if uses_tags(style):
+        conn = get_db(settings.db_path)
+        try:
+            tagged = [row_to_dict(r) for r in conn.execute(
+                "SELECT * FROM characters WHERE project_id = ? AND COALESCE(sd_tags, '') != ''", (project_id,))]
+        finally:
+            conn.close()
     jobs = []
     for p in list_panels(project_id):
         if panel_ids and p["id"] not in panel_ids:
@@ -313,7 +321,11 @@ def render_panels(project_id: int, *, panel_ids: list[int] | None = None, missin
         for inp in inputs:
             role = inp.get("role")
             if role == "prompt":
-                values[str(inp["nodeId"])] = _restyle(p["prompt"], head)
+                prompt = _restyle(p["prompt"], head)
+                who = [c for c in tagged if _named_in(prompt[len(head):], c["name"])]
+                if who:
+                    prompt = head + ", " + ", ".join(character_tag_text(c) for c in who) + prompt[len(head):]
+                values[str(inp["nodeId"])] = prompt
             elif role == "width":
                 values[str(inp["nodeId"])] = p["width"]
             elif role == "height":

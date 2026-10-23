@@ -66,7 +66,7 @@ async def enqueue_asset_jobs(
         {"message": "Preparing asset generation from saved image prompts…", "project_id": project_id},
     )
     # Without an explicit workflow each kind uses its role (Settings > Workflows).
-    from calliope.render_styles import for_project, negative_values, styled_prompt, workflow_for
+    from calliope.render_styles import for_project, negative_values, sheet_prompt_tags, styled_prompt, uses_tags, workflow_for
 
     style = for_project(project_id)
 
@@ -102,7 +102,8 @@ async def enqueue_asset_jobs(
             existing = c.get("sheet_path") if target == "sheet" else c.get("portrait_path")
             if missing_only and existing:
                 continue
-            prompt = (prompt_override or "").strip() or character_image_prompt(c, kind=target)
+            prompt = (prompt_override or "").strip() or (
+                uses_tags(style) and target == "sheet" and sheet_prompt_tags(c)) or character_image_prompt(c, kind=target)
             if not prompt.strip() and not allow_empty_prompt:
                 skipped.append(c.get("name") or str(c["id"]))
                 continue

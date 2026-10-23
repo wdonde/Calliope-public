@@ -292,6 +292,11 @@ export const assetLibraryApi = {
 			`/api/projects/${projectId}/character/${characterId}/update-from-library`,
 			{ method: 'POST', body: JSON.stringify({ replace_prompt: replacePrompt }) },
 		),
+	/** Danbooru tags from the reference pictures (WD tagger; not saved): identity tags and the rest. */
+	tagsFromPictures: (assetId: number) =>
+		api<{ tags: string[]; outfit: string[]; pictures: number }>(`/api/asset-library/${assetId}/tags-from-pictures`, {
+			method: 'POST',
+		}),
 	/** Draft the image prompt from what the reference pictures show (vision model; not saved). */
 	promptFromPictures: (assetId: number) =>
 		api<{ prompt: string; refs: string[]; pictures: string[]; style: string }>(

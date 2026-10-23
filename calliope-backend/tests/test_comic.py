@@ -287,3 +287,24 @@ def test_render_style_picks_workflow_style_text_and_negative(client, tmp_path):
     values = json.loads(get_db(settings.db_path).execute(
         "SELECT payload_json FROM jobs WHERE id = ?", (r["job_ids"][0],)).fetchone()[0])["input_values"]
     assert values["10"].startswith("Single full-frame illustration of one continuous scene, Korean webtoon")
+
+
+def test_tag_style_puts_the_characters_tags_into_the_panel(client, tmp_path):
+    pid, char_id = _comic_project(client, "webtoon", tmp_path)
+    client.post(f"/api/projects/{pid}/panels/plan")
+    conn = get_db(settings.db_path)
+    conn.execute("UPDATE characters SET sd_tags = ?, appearance = ? WHERE id = ?",
+                 ("1girl, blonde hair, ponytail", "CHARACTER INFORMATION\nName: Iselle\n\nOUTFIT\nTop: red coat", char_id))
+    conn.commit()
+    conn.close()
+    wf = {"10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+          "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}
+    wid = client.post("/api/workflows", json={"name": "SDXL", "kind": "image", "workflow_json": wf}).json()["id"]
+    style = client.post("/api/render-styles", json={"category": "Anime", "name": "T", "style_prompt": "anime style",
+                                                     "workflows": {"0": wid}}).json()
+    client.patch(f"/api/projects/{pid}", json={"render_style_id": style["id"]})
+    r = client.post(f"/api/projects/{pid}/panels/render").json()
+    values = json.loads(get_db(settings.db_path).execute(
+        "SELECT payload_json FROM jobs WHERE id = ?", (r["job_ids"][0],)).fetchone()[0])["input_values"]
+    assert values["10"].startswith("anime style. Single full-frame illustration of one continuous scene, "
+                                   "1girl, blonde hair, ponytail, red coat")

@@ -52,7 +52,7 @@
 		tags = asset.tags.join(', ');
 		const d = asset.data as Record<string, unknown>;
 		fields = Object.fromEntries(
-			['alias', 'appearance', 'role', 'age', 'personality', 'description', 'consistency_prompt', 'max_refs'].map((k) => [
+			['alias', 'appearance', 'role', 'age', 'personality', 'description', 'consistency_prompt', 'max_refs', 'sd_tags'].map((k) => [
 				k,
 				String(d[k] ?? (k === 'max_refs' ? 2 : '')),
 			]),
@@ -146,13 +146,34 @@
 		}
 	}
 
+	let tagging = $state(false);
+	let outfitTags = $state<string[]>([]);
+	/** Danbooru tags of the character's identity from its pictures (WD tagger), for SDXL styles. */
+	async function tagsFromPictures() {
+		if (!asset) return;
+		tagging = true;
+		try {
+			await assetLibraryApi.update(asset.id, {
+				source_images: (await picker?.resolvePaths()) ?? [],
+				data: { ref_indices: refIdx, max_refs: fields.max_refs },
+			});
+			const r = await assetLibraryApi.tagsFromPictures(asset.id);
+			fields.sd_tags = r.tags.join(', ');
+			outfitTags = r.outfit;
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : String(err));
+		} finally {
+			tagging = false;
+		}
+	}
+
 	async function save() {
 		if (!asset || !name.trim()) return;
 		// An empty look is written automatically before saving.
 		if (!(fields[lookKey] ?? '').trim()) await generate();
 		busy = true;
 		try {
-			const keys = [...textFields.map((f) => f.key), 'consistency_prompt', 'max_refs'];
+			const keys = [...textFields.map((f) => f.key), 'consistency_prompt', 'max_refs', ...(isChar ? ['sd_tags'] : [])];
 			const saved = await assetLibraryApi.update(asset.id, {
 				name: name.trim(),
 				...(isChar ? {} : { tags: tags.split(',').map((s) => s.trim()).filter(Boolean) }),
@@ -263,6 +284,23 @@
 						{/if}
 					</span>
 				</label>
+				{#if isChar}
+					<label>
+						<span class="field-label">
+							{t('assets.edit.sdTags')}
+							{#if pics.length}
+								<button type="button" class="gen" disabled={tagging} onclick={tagsFromPictures}>
+									{tagging ? t('assets.edit.tagging') : t('assets.edit.tagsFromPictures')}
+								</button>
+							{/if}
+						</span>
+						<textarea class="field-textarea mono" rows="2" bind:value={fields.sd_tags}></textarea>
+						<span class="muted small">
+							{t('assets.edit.sdTagsHint')}
+							{#if outfitTags.length}<br />{t('assets.edit.outfitTags', { tags: outfitTags.join(', ') })}{/if}
+						</span>
+					</label>
+				{/if}
 				{#if preview}
 					<div class="refs">
 						<span class="field-label">{t('assets.edit.sentRefs', { n: preview.refs.length })}</span>

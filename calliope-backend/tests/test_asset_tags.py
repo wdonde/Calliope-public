@@ -658,3 +658,39 @@ def test_image_prompt_written_from_the_pictures(client, monkeypatch):
     assert "neutral expression" in lines[4]
     stored = client.get("/api/asset-library").json()[0]["data"]["consistency_prompt"]
     assert stored != r["prompt"]  # only a draft until saved
+
+
+def test_identity_tags_leave_clothes_to_the_project():
+    from calliope.agent.tagger import split_identity
+
+    identity, rest = split_identity(["1girl", "blue hair", "tank top", "mole under eye", "hair ornament",
+                                     "white shirt", "dark-skinned female", "standing"])
+    assert identity == ["1girl", "blue hair", "mole under eye", "dark-skinned female"]
+    assert rest == ["tank top", "hair ornament", "white shirt", "standing"]
+
+
+def test_tags_from_pictures_and_into_the_project(client, monkeypatch):
+    import calliope.agent.tagger as tagger
+    from calliope.config import settings
+
+    monkeypatch.setattr(tagger, "tags_from_pictures", lambda paths: {
+        "tags": ["1girl", "blue hair", "white shirt", "brown eyes"], "per_image": []})
+    pid = client.post("/api/projects", json={"title": "P"}).json()["id"]
+    c = client.post(f"/api/projects/{pid}/characters", json={
+        "name": "Kaoru", "appearance": "CHARACTER INFORMATION\nName: Kaoru\nHair: dark blue"}).json()
+    lib = client.post(f"/api/projects/{pid}/character/{c['id']}/to-library").json()
+    assert client.post(f"/api/asset-library/{lib['id']}/tags-from-pictures").status_code == 422  # no pictures
+    p = Path(settings.assets_dir) / "uploads" / "t.png"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (40, 60), (30, 40, 200)).save(p)
+    client.patch(f"/api/asset-library/{lib['id']}", json={"source_images": [str(p)]})
+    r = client.post(f"/api/asset-library/{lib['id']}/tags-from-pictures").json()
+    assert r == {"tags": ["1girl", "blue hair", "brown eyes"], "outfit": ["white shirt"], "pictures": 1}
+    client.patch(f"/api/asset-library/{lib['id']}", json={"data": {"sd_tags": "1girl, blue hair, brown eyes"}})
+    other = client.post(f"/api/projects/{pid}/characters", json={
+        "name": "Kaoru Toyma", "appearance": "Wears a grey suit."}).json()
+    client.post(f"/api/asset-library/{lib['id']}/apply/{pid}/{other['id']}")
+    from calliope.db import get_db
+
+    row = get_db(settings.db_path).execute("SELECT sd_tags FROM characters WHERE id = ?", (other["id"],)).fetchone()
+    assert row[0] == "1girl, blue hair, brown eyes"

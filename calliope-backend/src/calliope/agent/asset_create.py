@@ -501,7 +501,7 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
                         target: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Queue the sheet/reference render with the asset's own pictures as references.
     ``target`` says where the worker writes the result (default: the project asset)."""
-    from calliope.render_styles import for_project, negative_values, styled_prompt
+    from calliope.render_styles import for_project, negative_values, sheet_prompt_tags, styled_prompt, uses_tags
 
     style = for_project(project_id)
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
@@ -521,6 +521,8 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
         conn.close()
     inputs = parse_dynamic_inputs(wf_json)
     image_nodes = [str(i["nodeId"]) for i in inputs if i.get("kind") == "image"]
+    if kind == "character" and uses_tags(style):
+        prompt = sheet_prompt_tags(entity) or prompt
     prompt = styled_prompt(prompt, style)
     values = smart_fill_inputs(inputs, prompt=prompt,
                                extra={**negative_values(inputs, style), **dict(zip(image_nodes, refs))})

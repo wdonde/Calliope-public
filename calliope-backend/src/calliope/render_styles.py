@@ -178,3 +178,28 @@ def negative_values(inputs: list[dict[str, Any]], style: dict[str, Any] | None) 
     if not neg:
         return {}
     return {str(i["nodeId"]): neg for i in inputs if i.get("role") == "negative"}
+
+
+SHEET_TAGS = "character reference sheet, multiple views, front view, side view, back view, full body, simple background"
+
+
+def uses_tags(style: dict[str, Any] | None) -> bool:
+    """Styles with their own workflows are SDXL-like: they read Danbooru tags best."""
+    return bool(style and style.get("workflows"))
+
+
+def character_tag_text(c: dict[str, Any]) -> str:
+    """A character as tags: its identity tags (WD tagger) plus the outfit values of its sheet."""
+    from calliope.agent.character_identity import outfit_text
+
+    outfit = [line.split(":", 1)[1].strip() for line in outfit_text(c.get("appearance")).splitlines()
+              if ":" in line and line.split(":", 1)[1].strip().lower() not in ("", "none", "-", "n/a")]
+    parts = [(c.get("sd_tags") or "").strip().strip(","), *outfit]
+    return ", ".join(p for p in parts if p)
+
+
+def sheet_prompt_tags(c: dict[str, Any]) -> str | None:
+    """The sheet prompt for a tag style, or None when the character has no tags yet."""
+    if not (c.get("sd_tags") or "").strip():
+        return None
+    return f"{SHEET_TAGS}, {character_tag_text(c)}"
