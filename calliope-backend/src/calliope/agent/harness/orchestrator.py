@@ -14,6 +14,7 @@ import json
 import logging
 from typing import Any
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.harness import get_registry
 from calliope.agent.harness import log as session_log
 from calliope.agent.harness.loop import (
@@ -319,6 +320,14 @@ ROLE_TOOLS: dict[str, list[str]] = {
     ],
 }
 
+SYNTHESIS_SYSTEM = (
+    "You are the swarm's lead. Summarize sub-agent work for "
+    "the user. Be concrete, and never overstate it: the "
+    "project's real content counts are given to you and are "
+    "the authority on what exists. A sub-agent saying 'Done.' "
+    "does not mean the work happened."
+)
+
 PLANNER_SYSTEM = """You are the planner of an AI production swarm. Given the user's goal and the current project state, decide:
 
 1. Whether this is a SIMPLE request (one question, one small edit, or a chat reply) — reply {"mode": "single"}.
@@ -392,7 +401,7 @@ async def _plan(goal: str, workspace_summary: str, session_id: int) -> dict[str,
         content: list[str] = []
         async for ev in client.chat_stream(
             [
-                {"role": "system", "content": PLANNER_SYSTEM},
+                {"role": "system", "content": prompt_text("agent.planner")},
                 {
                     "role": "user",
                     "content": f"Goal: {goal}\n\nProject state:\n{workspace_summary}",
@@ -743,16 +752,7 @@ async def orchestrate(
     try:
         final = await client.chat(
             [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are the swarm's lead. Summarize sub-agent work for "
-                        "the user. Be concrete, and never overstate it: the "
-                        "project's real content counts are given to you and are "
-                        "the authority on what exists. A sub-agent saying 'Done.' "
-                        "does not mean the work happened."
-                    ),
-                },
+                {"role": "system", "content": prompt_text("agent.synthesis")},
                 {"role": "user", "content": synthesis_in},
             ],
             temperature=0.3,
@@ -877,7 +877,7 @@ async def _run_sub_agent(
             step_messages = list(messages)
             if max_iterations - iteration == 0:
                 # Final-step budget nudge: wrap up, don't start new work.
-                step_messages.append({"role": "user", "content": FINAL_STEP_NUDGE})
+                step_messages.append({"role": "user", "content": prompt_text("agent.final_step")})
             content_acc: list[str] = []
             tool_calls: list[dict[str, Any]] = []
             async for ev in client.chat_stream(

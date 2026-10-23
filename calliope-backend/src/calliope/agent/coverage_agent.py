@@ -13,6 +13,7 @@ import json
 import logging
 from typing import Any
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent import comic_prompts
 from calliope.activity import tracked
 from calliope.agent.llm import generate_structured
@@ -25,6 +26,12 @@ logger = logging.getLogger("calliope.coverage_agent")
 
 # Scenes expanded per LLM call (same chunking rationale as generate_script).
 COVERAGE_CHUNK = 4
+
+
+COVERAGE_SYSTEM = (
+    "You are a film director planning shot coverage for AI video generation. "
+    "You output ONLY a single valid JSON object."
+)
 
 
 def _dialog_lines(dialog: str | None) -> list[str]:
@@ -101,13 +108,7 @@ Respond ONLY with JSON:
 FINAL CHECK: every dialogue line number appears exactly once across all clips, durations
 sum ≈ {scene_secs}, no clip exceeds {clip_cap}s. If not, fix it."""
     return [
-        {
-            "role": "system",
-            "content": (
-                "You are a film director planning shot coverage for AI video generation. "
-                "You output ONLY a single valid JSON object."
-            ),
-        },
+        {"role": "system", "content": prompt_text("script.coverage_system")},
         {"role": "user", "content": user},
     ]
 

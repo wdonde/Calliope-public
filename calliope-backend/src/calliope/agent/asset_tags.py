@@ -13,11 +13,13 @@ import json
 import re
 from typing import Any
 
+from calliope.prompt_library import text as prompt_text
 from calliope.activity import tracked
 from calliope.agent.llm import generate_structured
 from calliope.config import settings
 from calliope.db import get_db, row_to_dict
 
+TAGS_SYSTEM = "You label story assets so they are easy to find. Respond with a single valid JSON object."
 ITEM_CATEGORIES = ("weapon", "vehicle", "device", "furniture", "clothing", "tool", "creature", "prop")
 MAX_TAGS = 20
 ALIAS_KEYS = ("alias", "name", "nickname")
@@ -127,7 +129,7 @@ async def suggest_tags(project_id: int) -> dict[str, int]:
     if not listing:
         return {table: 0 for table, _ in _KINDS}
     messages = [
-        {"role": "system", "content": "You label story assets so they are easy to find. Respond with a single valid JSON object."},
+        {"role": "system", "content": prompt_text("assets.tags_system")},
         {"role": "user", "content": f"""Story: {project.get('title')} -- {(project.get('idea') or '')[:1500]}
 
 Assets:

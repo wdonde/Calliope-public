@@ -19,6 +19,7 @@ from typing import Any
 
 from PIL import Image
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.asset_tags import ITEM_CATEGORIES, name_tags, normalize_category, tags_json
 from calliope.agent.character_identity import character_tags, complete_sheet, identity_tags, story_fields
 from calliope.agent.llm import generate_structured
@@ -100,6 +101,24 @@ def max_refs(entity: dict[str, Any]) -> int:
         return max(1, min(MAX_IMAGES, int(entity.get("max_refs") or DEFAULT_MAX_REFS)))
     except (TypeError, ValueError):
         return DEFAULT_MAX_REFS
+
+
+DESIGNER_SYSTEM = "You are a character and production designer. Respond with a single valid JSON object."
+EXTRACT_SYSTEM = "You extract facts into JSON. Respond with a single valid JSON object."
+OUTFIT_RULES = """Fill the outfit fields with what the description says about clothing, gear and carried items, in English.
+Copy each value word for word as a whole phrase from the description, with every adjective it has
+(color, material, condition) -- e.g. "a red wool scarf with frayed ends", never just "scarf".
+Leave a field empty when the description does not mention it. Do not invent anything."""
+PICTURES_SYSTEM = "You describe reference pictures briefly and exactly. Respond with a single valid JSON object."
+PICTURES_RULES = """These {count} pictures are references of the {what} "{name}".
+For each picture write which view of the {what} it shows in 3-8 English words: framing and angle only
+(e.g. "face close-up, front view", "full body, side view"). No facial expression, no emotion, no sweat or tears,
+no props or accessories held for the moment.
+Then name the art style the pictures are drawn in (medium, line work, shading; 3-10 words, e.g. "Japanese manga, clean ink lines, screentone shading")."""
+PICTURES_CLOTHES = ("Then the main outfit in 5-15 words: the clothes the person wears in most pictures. "
+                    "Leave out underwear, straps, sunglasses and anything only seen once.")
+SHEET_LAYOUT = ("Layout: front full body, side full body, back full body and a head close-up, same person in every "
+                "view, neutral standing pose, neutral expression, plain light background, no text, no other people.")
 
 
 def chosen_refs(entity: dict[str, Any]) -> list[str] | None:
@@ -273,7 +292,7 @@ Respond ONLY with JSON:
             parts.append({"type": "text", "text": f"Picture {i} ({kind_of}):"})
             parts.append({"type": "image_url", "image_url": {"url": url}})
     messages = [
-        {"role": "system", "content": "You are a character and production designer. Respond with a single valid JSON object."},
+        {"role": "system", "content": prompt_text("assets.designer_system")},
         {"role": "user", "content": parts if len(parts) > 1 else text},
     ]
     try:
@@ -297,14 +316,11 @@ async def outfit_from_text(name: str, text: str) -> str:
     """The OUTFIT block read out of a prose appearance (what the text says, nothing invented)."""
     sheet = "\n".join(f'    "{label}": "{h}",' for label, h in CHARACTER_SHEET[1][1])
     messages = [
-        {"role": "system", "content": "You extract facts into JSON. Respond with a single valid JSON object."},
+        {"role": "system", "content": prompt_text("assets.extract_system")},
         {"role": "user", "content": f"""Character: {name}
 Description: {text}
 
-Fill the outfit fields with what the description says about clothing, gear and carried items, in English.
-Copy each value word for word as a whole phrase from the description, with every adjective it has
-(color, material, condition) -- e.g. "a red wool scarf with frayed ends", never just "scarf".
-Leave a field empty when the description does not mention it. Do not invent anything.
+{prompt_text("assets.outfit_rules")}
 
 Respond ONLY with JSON:
 {{
@@ -418,12 +434,10 @@ async def prompt_from_pictures(kind: str, entity: dict[str, Any]) -> dict[str, A
     if not refs:
         raise ValueError("No reference pictures to write from.")
     what = {"character": "person", "location": "place", "item": "object"}[kind]
-    parts: list[dict[str, Any]] = [{"type": "text", "text": f"""These {len(refs)} pictures are references of the {what} "{entity.get('name')}".
-For each picture write which view of the {what} it shows in 3-8 English words: framing and angle only
-(e.g. "face close-up, front view", "full body, side view"). No facial expression, no emotion, no sweat or tears,
-no props or accessories held for the moment.
-Then name the art style the pictures are drawn in (medium, line work, shading; 3-10 words, e.g. "Japanese manga, clean ink lines, screentone shading").
-{'Then the main outfit in 5-15 words: the clothes the person wears in most pictures. Leave out underwear, straps, sunglasses and anything only seen once.' if kind == 'character' else ''}
+    rules = prompt_text("assets.pictures_rules", count=len(refs), what=what, name=entity.get("name") or "")
+    clothes_rule = prompt_text("assets.pictures_clothes") if kind == "character" else ""
+    parts: list[dict[str, Any]] = [{"type": "text", "text": f"""{rules}
+{clothes_rule}
 Respond ONLY with JSON: {{"pictures": ["..."], "style": "..."{', "clothes": "..."' if kind == 'character' else ''}}}"""}]
     for i, p in enumerate(refs, 1):
         url = _data_url(p)
@@ -431,7 +445,7 @@ Respond ONLY with JSON: {{"pictures": ["..."], "style": "..."{', "clothes": "...
             parts.append({"type": "text", "text": f"Picture {i}:"})
             parts.append({"type": "image_url", "image_url": {"url": url}})
     result = await generate_structured(
-        [{"role": "system", "content": "You describe reference pictures briefly and exactly. Respond with a single valid JSON object."},
+        [{"role": "system", "content": prompt_text("assets.pictures_system")},
          {"role": "user", "content": parts}], temperature=0.2, role="assets")
     shows = [str(x).strip().rstrip(".") for x in (result.get("pictures") or []) if str(x).strip()]
     style = str(result.get("style") or "").strip().rstrip(".")
@@ -452,8 +466,7 @@ Respond ONLY with JSON: {{"pictures": ["..."], "style": "..."{', "clothes": "...
         ]
         if colors:
             lines.append(f"Colors: {'; '.join(colors)}.")
-        lines.append("Layout: front full body, side full body, back full body and a head close-up, same person in every "
-                     "view, neutral standing pose, neutral expression, plain light background, no text, no other people.")
+        lines.append(prompt_text("assets.sheet_layout"))
     elif kind == "location":
         lines = [f"Reference image of {name}, the place in {roles}.",
                  f"Art style: {style}." if style else "Art style: the same as the reference pictures.",

@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable
 from string import Template
 from typing import Any
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.idea_guard import LONG_IDEA_CHARS
 from calliope.agent.llm import LLMClient, extract_json
 from calliope.agent.prompts import guess_language
@@ -39,6 +40,7 @@ AUTO_DURATIONS = DURATIONS[:3]
 Progress = Callable[[str], Awaitable[None]]
 
 SKILL = "novel-condense"
+JSON_ONLY = "You answer with a single JSON object and nothing else."
 # Built-in templates; the skill file ships the same text as its starting point.
 DEFAULT_TEMPLATES = {
     "part-summary": (
@@ -112,7 +114,7 @@ def split_text(text: str, size: int = CHUNK_CHARS) -> list[str]:
 
 async def _ask(client: LLMClient, prompt: str) -> dict[str, Any]:
     messages = [
-        {"role": "system", "content": "You answer with a single JSON object and nothing else."},
+        {"role": "system", "content": prompt_text("common.json_only")},
         {"role": "user", "content": prompt},
     ]
     try:

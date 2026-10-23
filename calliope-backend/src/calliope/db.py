@@ -472,6 +472,17 @@ async def migrate_db(db_path: Path) -> None:
         )
         """
     )
+    # The user's versions of Calliope's prompts and a picture of where each is used (prompt_library.py).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS prompt_overrides (
+            key TEXT PRIMARY KEY,
+            text TEXT,
+            image_path TEXT,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     if "render_style_id" not in project_cols:
         conn.execute("ALTER TABLE projects ADD COLUMN render_style_id INTEGER")
     # One comic panel per clip: its image prompt, references, speech bubbles.

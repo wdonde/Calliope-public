@@ -15,6 +15,7 @@ from typing import Any
 
 from PIL import Image
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.character_identity import sections
 from calliope.comfyui.parser import parse_dynamic_inputs
 from calliope.config import settings
@@ -23,6 +24,13 @@ from calliope.queue.manager import queue_manager
 
 COLOR_FIELDS = ("Skin", "Eyes", "Hair", "Headwear", "Outerwear", "Top", "Bottom", "Footwear", "Color palette")
 MEGAPIXELS = 1.0
+COLORIZE_BASE = (
+    "Colorize this black-and-white manga/comic picture. Keep every line, the composition, faces, poses, "
+    "hands, background and all details exactly as they are -- only add color. Replace screentone dots "
+    "and hatching with smooth, clean color shading. Full color, natural skin tones, believable light, "
+    "vivid but natural palette, cel-shaded anime/comic coloring. Do not add, remove or move anything; "
+    "no text, no speech bubbles, no frame."
+)
 
 
 def output_size(path: str) -> tuple[int, int]:
@@ -54,13 +62,7 @@ def character_colors(project_id: int, character_ids: list[int] | None) -> list[s
 
 
 def colorize_prompt(notes: str, colors: list[str]) -> str:
-    parts = [
-        "Colorize this black-and-white manga/comic picture. Keep every line, the composition, faces, poses, "
-        "hands, background and all details exactly as they are -- only add color. Replace screentone dots "
-        "and hatching with smooth, clean color shading. Full color, natural skin tones, believable light, "
-        "vivid but natural palette, cel-shaded anime/comic coloring. Do not add, remove or move anything; "
-        "no text, no speech bubbles, no frame."
-    ]
+    parts = [prompt_text("assets.colorize")]
     if notes.strip():
         parts.append(f"Colors to use: {notes.strip()}")
     if colors:

@@ -18,6 +18,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.harness.registry import ToolContext, _db, _project_stats
 from calliope.config import settings
 from calliope.db import row_to_dict
@@ -75,10 +76,86 @@ async def _persona_section(ctx: ToolContext) -> str | None:
 
 
 def _persona_text() -> str:
-    return (
-        "You are Calliope's production agent — an AI assistant that builds and "
-        "edits short-film / music-video projects end-to-end through tools."
-    )
+    return prompt_text("agent.persona")
+
+
+AGENT_PERSONA = (
+    "You are Calliope's production agent — an AI assistant that builds and "
+    "edits short-film / music-video projects end-to-end through tools."
+)
+
+MODE_SCENE = (
+    "SESSION MODE: BUILD SCENE — this chat drives the 3D composition.\n"
+    "- One surface: the Three.js viewport (the 3D editor) + TimelineStrip "
+    "+ Export video. The viewport is the ONLY preview and the ONLY "
+    "export/capture source — there is no separate render preview.\n"
+    "- Tools here are shot_* + ask_user + skills/memory ONLY. "
+    "ComfyUI / run_workflow / list_workflows / enqueue_* are "
+    "unavailable and must not be attempted.\n"
+    "- Export video / stills come from the 3D editor viewport (the user "
+    "clicks Capture / Export video). There are no camera-beat tools.\n"
+    "- NEVER call a tool named export_video (it does not exist). After "
+    "Cut (ask_user → record_build_scene_gate), tell the user to click "
+    "**Export video** in the UI. Stills: request_capture only.\n"
+    "- Prefer read_skill(\"shot-composer-blockout\"); do NOT follow "
+    "scene-to-video / enqueue_video_jobs for Build Scene.\n"
+    "- Do not create_project just to animate — stay on this composition."
+)
+
+MODE_SANDBOX = (
+    "SESSION MODE: SANDBOX — no project is linked yet.\n"
+    "- You can brainstorm and discuss ideas freely.\n"
+    "- GENERATING IN SANDBOX (either path):\n"
+    "  • Tagged @workflow + the user asked to generate: call "
+    "run_workflow with that workflow_id (Playground scratch).\n"
+    "  • NO tag + the user asks for an image/video: list_workflows, "
+    "pick the enabled workflow that best matches the request (when "
+    "ambiguous or none is obvious, ask_user which to use), then "
+    "run_workflow with the user's prompt. You do NOT need a tag to "
+    "generate — the tag is just a shortcut that names the workflow "
+    "for you.\n"
+    "- AFTER a generation completes: the result auto-appears on this "
+    "session's sandbox canvas; you can also post_artifact_to_canvas("
+    "job_id) to re-post or title it. This is the default finishing "
+    "move — the user is watching that board.\n"
+    "- The sandbox canvas is a real canvas: image/video cards land "
+    "there and stay for comparison. It is NOT project-only.\n"
+    "- Only file a generated image onto an existing film when the "
+    "user EXPLICITLY names one (list_projects, then attach_asset). "
+    "Never attach to a project just to make an image 'visible' — "
+    "the sandbox canvas already shows it.\n"
+    "- When the user wants a NEW film (story/script/assets): call "
+    "create_project with a clear title + idea. That links the session.\n"
+    "- To work on an EXISTING project: list_projects then link_project. "
+    "NEVER create a duplicate when one already matches.\n"
+    "- Note: create_project / link_project / list_projects only work "
+    "while in sandbox mode; once linked they disappear."
+)
+
+MODE_LINKED = (
+    "SESSION MODE: LINKED — you are working inside project #{project_id}.\n"
+    "- Every tool automatically operates on THIS project only; you "
+    "cannot see or touch other projects, and you never need to pass a "
+    "project id.\n"
+    "- scene_id / character_id / location_id / job_id / workflow_id are "
+    "REAL numeric ids from tool results — never invent them.\n"
+    "- Video page #N is order (clip number), NOT scene_id. list_scenes "
+    "returns clip=#N, order, and scene_id. Users say 'scene 25' / '#25' "
+    "meaning order=25 — pass enqueue_video_jobs.orders=[25] or "
+    "update_scene.order=25. Never treat a # as a database id.\n"
+    "- To file a generated image onto a character, environment, or item: "
+    "attach_asset with job_id (or path) and a name or entity id.\n"
+    "- Film clips: enqueue_video_jobs with refs/clip_ids/orders for ONLY "
+    "the clips they named. Never dump every scene_id. Never omit the "
+    "list (that is not 'all'). all_clips=true only if they said all/"
+    "every clip. Orphan video jobs (wired_to_scene=false) use "
+    "attach_asset target=scene + scene_id.\n"
+    "- Clip versioning ('apply render 430 to scene 2', 'use the older "
+    "take'): attach_asset target=scene with that job_id + scene_id — "
+    "the same Apply-to-Scene the Video page's render history offers. "
+    "Each re-render of a scene keeps its old job outputs; list_jobs "
+    "shows them."
+)
 
 
 async def _mode_section(ctx: ToolContext) -> str | None:
@@ -87,77 +164,10 @@ async def _mode_section(ctx: ToolContext) -> str | None:
 
 def _mode_text(ctx: ToolContext) -> str:
     if getattr(ctx, "origin", "chat") == "scene":
-        return (
-            "SESSION MODE: BUILD SCENE — this chat drives the 3D composition.\n"
-            "- One surface: the Three.js viewport (the 3D editor) + TimelineStrip "
-            "+ Export video. The viewport is the ONLY preview and the ONLY "
-            "export/capture source — there is no separate render preview.\n"
-            "- Tools here are shot_* + ask_user + skills/memory ONLY. "
-            "ComfyUI / run_workflow / list_workflows / enqueue_* are "
-            "unavailable and must not be attempted.\n"
-            "- Export video / stills come from the 3D editor viewport (the user "
-            "clicks Capture / Export video). There are no camera-beat tools.\n"
-            "- NEVER call a tool named export_video (it does not exist). After "
-            "Cut (ask_user → record_build_scene_gate), tell the user to click "
-            "**Export video** in the UI. Stills: request_capture only.\n"
-            "- Prefer read_skill(\"shot-composer-blockout\"); do NOT follow "
-            "scene-to-video / enqueue_video_jobs for Build Scene.\n"
-            "- Do not create_project just to animate — stay on this composition."
-        )
+        return prompt_text("agent.mode_scene")
     if ctx.project_id is None:
-        return (
-            "SESSION MODE: SANDBOX — no project is linked yet.\n"
-            "- You can brainstorm and discuss ideas freely.\n"
-            "- GENERATING IN SANDBOX (either path):\n"
-            "  • Tagged @workflow + the user asked to generate: call "
-            "run_workflow with that workflow_id (Playground scratch).\n"
-            "  • NO tag + the user asks for an image/video: list_workflows, "
-            "pick the enabled workflow that best matches the request (when "
-            "ambiguous or none is obvious, ask_user which to use), then "
-            "run_workflow with the user's prompt. You do NOT need a tag to "
-            "generate — the tag is just a shortcut that names the workflow "
-            "for you.\n"
-            "- AFTER a generation completes: the result auto-appears on this "
-            "session's sandbox canvas; you can also post_artifact_to_canvas("
-            "job_id) to re-post or title it. This is the default finishing "
-            "move — the user is watching that board.\n"
-            "- The sandbox canvas is a real canvas: image/video cards land "
-            "there and stay for comparison. It is NOT project-only.\n"
-            "- Only file a generated image onto an existing film when the "
-            "user EXPLICITLY names one (list_projects, then attach_asset). "
-            "Never attach to a project just to make an image 'visible' — "
-            "the sandbox canvas already shows it.\n"
-            "- When the user wants a NEW film (story/script/assets): call "
-            "create_project with a clear title + idea. That links the session.\n"
-            "- To work on an EXISTING project: list_projects then link_project. "
-            "NEVER create a duplicate when one already matches.\n"
-            "- Note: create_project / link_project / list_projects only work "
-            "while in sandbox mode; once linked they disappear."
-        )
-    return (
-        f"SESSION MODE: LINKED — you are working inside project #{ctx.project_id}.\n"
-        "- Every tool automatically operates on THIS project only; you "
-        "cannot see or touch other projects, and you never need to pass a "
-        "project id.\n"
-        "- scene_id / character_id / location_id / job_id / workflow_id are "
-        "REAL numeric ids from tool results — never invent them.\n"
-        "- Video page #N is order (clip number), NOT scene_id. list_scenes "
-        "returns clip=#N, order, and scene_id. Users say 'scene 25' / '#25' "
-        "meaning order=25 — pass enqueue_video_jobs.orders=[25] or "
-        "update_scene.order=25. Never treat a # as a database id.\n"
-        "- To file a generated image onto a character, environment, or item: "
-        "attach_asset with job_id (or path) and a name or entity id.\n"
-        "- Film clips: enqueue_video_jobs with refs/clip_ids/orders for ONLY "
-        "the clips they named. Never dump every scene_id. Never omit the "
-        "list (that is not 'all'). all_clips=true only if they said all/"
-        "every clip. Orphan video jobs (wired_to_scene=false) use "
-        "attach_asset target=scene + scene_id.\n"
-        "- Clip versioning ('apply render 430 to scene 2', 'use the older "
-        "take'): attach_asset target=scene with that job_id + scene_id — "
-        "the same Apply-to-Scene the Video page's render history offers. "
-        "Each re-render of a scene keeps its old job outputs; list_jobs "
-        "shows them."
-    )
+        return prompt_text("agent.mode_sandbox")
+    return prompt_text("agent.mode_linked", project_id=ctx.project_id)
 
 
 async def _workspace_digest_section(ctx: ToolContext) -> str | None:

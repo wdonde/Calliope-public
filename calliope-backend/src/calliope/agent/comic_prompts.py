@@ -7,6 +7,7 @@ these pieces instead of their video wording when it is a comic format.
 """
 from __future__ import annotations
 
+from calliope.prompt_library import text as prompt_text
 import re
 from typing import Any
 
@@ -176,7 +177,7 @@ Respond ONLY with JSON:
   ]
 }}"""
     return [
-        {"role": "system", "content": COMIC_SCRIPT_SYSTEM.format(kind=kind)},
+        {"role": "system", "content": prompt_text("script.comic_system", kind=kind)},
         {"role": "user", "content": user},
     ]
 

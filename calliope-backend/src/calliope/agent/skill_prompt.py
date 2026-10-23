@@ -16,6 +16,7 @@ import logging
 import re
 from typing import Any
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.llm import LLMClient
 from calliope.agent.prompts import appearance_line
 from calliope.agent.skills_store import ensure_builtin_skills, read_skill_file
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 STYLE_SUFFIXES = (
     (("anime", "manga", "cel"), "anime style, cel-shaded 2D animation, clean line art, rich but balanced colors, detailed background art"),
     (("3d", "cgi", "pixar"), "cinematic 3D CGI, soft global illumination, balanced exposure, detailed materials"),
+)
+SKILL_REWRITE_SYSTEM = (
+    "You write ONE video-generation prompt following the skill below. "
+    "Output only the prompt text: no quotes, no markdown, no commentary."
 )
 DEFAULT_SUFFIX = "cinematic film still, natural lighting, balanced exposure"
 
@@ -90,10 +95,7 @@ async def rewrite_prompt(
         f"Current draft: {base}",
     ])
     messages = [
-        {"role": "system", "content": (
-            "You write ONE video-generation prompt following the skill below. "
-            "Output only the prompt text: no quotes, no markdown, no commentary.\n\n" + doc["content"]
-        )},
+        {"role": "system", "content": prompt_text("video.skill_rewrite") + "\n\n" + doc["content"]},
         {"role": "user", "content": brief},
     ]
     client = LLMClient.for_role("video", timeout=120.0)

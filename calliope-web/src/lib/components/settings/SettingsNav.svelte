@@ -8,6 +8,7 @@
 		{ id: 'workflows', href: '/settings?tab=workflows', labelKey: 'nav.workflows', blurbKey: 'nav.workflowsBlurb' },
 		{ id: 'styles', href: '/settings?tab=styles', labelKey: 'nav.styles', blurbKey: 'nav.stylesBlurb' },
 		{ id: 'agent', href: '/settings?tab=agent', labelKey: 'nav.agent', blurbKey: 'nav.agentBlurb' },
+		{ id: 'prompts', href: '/settings?tab=prompts', labelKey: 'nav.prompts', blurbKey: 'nav.promptsBlurb' },
 		{ id: 'skills', href: '/settings?tab=skills', labelKey: 'nav.skills', blurbKey: 'nav.skillsBlurb' },
 		{ id: 'queue', href: '/settings?tab=queue', labelKey: 'nav.queue', blurbKey: 'nav.queueBlurb' },
 		{ id: 'storage', href: '/settings?tab=storage', labelKey: 'nav.storage', blurbKey: 'nav.storageBlurb' },

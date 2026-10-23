@@ -5,16 +5,17 @@ import re
 from pathlib import Path
 from typing import Any
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent import comic_prompts
 
 
 def story_system(fmt: str | None = None) -> str:
     """STORY_GENERATION_SYSTEM, with the studio named for comic formats."""
     if comic_prompts.is_comic(fmt):
-        return STORY_GENERATION_SYSTEM.replace(
+        return prompt_text("story.system").replace(
             "an AI video studio", comic_prompts.medium(fmt, None)["studio"]
         ).replace("Longer target runtimes", "Longer chapters and episodes")
-    return STORY_GENERATION_SYSTEM
+    return prompt_text("story.system")
 
 
 STORY_GENERATION_SYSTEM = (
@@ -557,7 +558,7 @@ FINAL CHECK before responding: scenes.length == {scene_n}, every action is a flo
 paragraph covering the WHOLE on-screen action, and every dialogue line is written out
 verbatim in "dialog" (no summaries). If not, fix it."""
     return [
-        {"role": "system", "content": SCRIPT_GENERATION_SYSTEM},
+        {"role": "system", "content": prompt_text("script.system")},
         {"role": "user", "content": user},
     ]
 
@@ -691,7 +692,7 @@ FINAL CHECK before responding: scenes.length == {chunk_scenes}, order_index runs
 on-screen action, and every dialogue line is written out verbatim in "dialog" (no
 summaries). If not, fix it."""
     return [
-        {"role": "system", "content": SCRIPT_GENERATION_SYSTEM},
+        {"role": "system", "content": prompt_text("script.system")},
         {"role": "user", "content": user},
     ]
 

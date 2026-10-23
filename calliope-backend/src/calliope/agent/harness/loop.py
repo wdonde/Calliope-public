@@ -18,6 +18,7 @@ import json
 import logging
 from typing import Any, Awaitable, Callable
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.harness import get_prompts, get_registry
 from calliope.agent.harness import log as session_log
 from calliope.agent.harness.registry import ToolContext
@@ -506,7 +507,7 @@ async def run_turn(
                 messages.append(
                     {
                         "role": "user",
-                        "content": FINAL_STEP_NUDGE,
+                        "content": prompt_text("agent.final_step"),
                     }
                 )
             tools = registry.openai_payload(ctx)
@@ -724,7 +725,7 @@ async def run_turn(
                     # Raw JSON that parsed as neither a native call nor a
                     # bridge action: the endpoint does not support function
                     # calling — tell the user instead of a silent no-op.
-                    final_text = final_text + "\n\n" + NO_FUNCTION_CALLING_NOTE
+                    final_text = final_text + "\n\n" + prompt_text("agent.no_function_calling")
                 reasoning_text = "".join(reasoning_acc).strip() or None
                 msg_data: dict[str, Any] = {"turn": turn_no, "step": iteration, "content": final_text, "agent_name": agent_name}
                 if reasoning_text:

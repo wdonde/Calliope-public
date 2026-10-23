@@ -7,6 +7,7 @@
 	import WorkflowRoles from '$lib/components/WorkflowRoles.svelte';
 	import RenderStyles from '$lib/components/RenderStyles.svelte';
 	import SettingsGuide from '$lib/components/settings/SettingsGuide.svelte';
+	import PromptsLibrary from '$lib/components/settings/PromptsLibrary.svelte';
 	import SkillsLibrary from '$lib/components/settings/SkillsLibrary.svelte';
 	import MemoryPanel from '$lib/components/settings/MemoryPanel.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
@@ -1212,12 +1213,15 @@
 				{:else if tab === 'styles'}
 					<SettingsGuide id="styles" steps={5} examples={3} tips={2} />
 					<RenderStyles />
+				{:else if tab === 'prompts'}
+					<SettingsGuide id="prompts" steps={4} examples={2} tips={2} />
+					<PromptsLibrary />
 				{:else if tab === 'skills'}
 					<SettingsGuide id="skills" steps={4} examples={3} tips={1} code />
 					<SkillsLibrary />
 				{/if}
 
-				{#if tab !== 'workflows' && tab !== 'skills' && tab !== 'styles'}
+				{#if tab !== 'workflows' && tab !== 'skills' && tab !== 'styles' && tab !== 'prompts'}
 					<div class="save-bar">
 						<span class="save-state" class:dirty={isDirty}>
 							{#if isDirty}

@@ -671,6 +671,39 @@ export const renderStylesApi = {
 	delete: (id: number) => api<{ ok: boolean }>(`/api/render-styles/${id}`, { method: 'DELETE' }),
 };
 
+/** One prompt Calliope sends (prompt_library.py): where and when it is used; fixed texts are editable. */
+export interface PromptEntry {
+	key: string;
+	name: string;
+	area: string;
+	description: string;
+	where: string;
+	when: string;
+	role: string;
+	source: string;
+	link: string;
+	placeholders: string[];
+	editable: boolean;
+	built_from: string;
+	kind: string;
+	default: string;
+	text: string;
+	overridden: boolean;
+	image_path: string | null;
+	updated_at: string | null;
+}
+
+export const promptsApi = {
+	list: () => api<PromptEntry[]>('/api/prompts'),
+	update: (key: string, payload: { text?: string; reset?: boolean; image_path?: string }) =>
+		api<PromptEntry>(`/api/prompts/${key}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+	uploadImage: (key: string, file: File) => {
+		const form = new FormData();
+		form.append('file', file);
+		return apiUpload<PromptEntry>(`/api/prompts/${key}/image`, form);
+	},
+};
+
 export const workflows = {
 	list: () => api<Workflow[]>('/api/workflows'),
 	analyze: (workflow_json: Record<string, unknown>) =>

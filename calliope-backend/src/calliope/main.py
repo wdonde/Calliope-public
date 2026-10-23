@@ -19,6 +19,7 @@ from calliope.queue.worker import queue_worker
 from calliope.routers import (
     asset_library,
     render_styles as render_styles_router,
+    prompts_library as prompts_library_router,
     colorize as colorize_router,
     activity as activity_router,
     agent,
@@ -142,6 +143,7 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
     app.include_router(assets.router, prefix="/api", tags=["assets"])
     app.include_router(asset_library.router, prefix="/api", tags=["asset-library"])
     app.include_router(render_styles_router.router, prefix="/api", tags=["render-styles"])
+    app.include_router(prompts_library_router.router, prefix="/api", tags=["prompts"])
     app.include_router(colorize_router.router, prefix="/api", tags=["colorize"])
     app.include_router(workflows.router, prefix="/api/workflows", tags=["workflows"])
     app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])

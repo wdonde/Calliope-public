@@ -26,6 +26,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+from calliope.prompt_library import text as prompt_text
 from calliope.activity import tracked
 from calliope.agent import asset_tags, manga_layout
 from calliope.agent.llm import LLMClient
@@ -43,6 +44,7 @@ STYLES = {
               "detailed ink line art, screentone shading, high contrast, dramatic composition, no color"),
 }
 FRAME = "Single full-frame illustration of one continuous scene"
+TRANSLATE = "Translate into English for an image-generation prompt. Output only the translation."
 NO_TEXT = "Plain clothing without lettering or name tags. Clean image without any text, speech bubbles or frame."
 SIZES = {"wide": (1216, 704), "medium": (1024, 1024), "closeUp": (896, 1152),
          "insert": (1024, 768), "overShoulder": (1024, 1024)}
@@ -65,15 +67,18 @@ def comic_dir(project_id: int) -> Path:
 def _style_head(project: dict[str, Any], style: dict[str, Any] | None) -> str:
     """What leads a panel prompt: the project's render style, else the format's built-in look."""
     if style and style.get("style_prompt", "").strip():
-        return f"{style['style_prompt'].strip().rstrip('.')}. {FRAME}"
-    return STYLES.get(project.get("format") or "", STYLES["webtoon"])
+        return f"{style['style_prompt'].strip().rstrip('.')}. {prompt_text('panels.frame')}"
+    fmt = project.get("format") if project.get("format") in STYLES else "webtoon"
+    return prompt_text(f"panels.look_{fmt}")
 
 
 def _restyle(prompt: str, head: str) -> str:
     """A planned prompt with its style head swapped for the current one (the style may have changed)."""
     from calliope.render_styles import list_styles
 
-    known = [*STYLES.values(), *(f"{s['style_prompt'].strip().rstrip('.')}. {FRAME}" for s in list_styles())]
+    frame = prompt_text("panels.frame")
+    known = [*STYLES.values(), *(prompt_text(f"panels.look_{f}") for f in STYLES),
+             *(f"{s['style_prompt'].strip().rstrip('.')}. {fr}" for s in list_styles() for fr in {FRAME, frame})]
     for old in sorted(known, key=len, reverse=True):
         if old and prompt.startswith(old):
             return head + prompt[len(old):]
@@ -95,8 +100,7 @@ async def _to_english(text: str) -> str:
     client = LLMClient.for_role("writer", timeout=120.0)
     try:
         out = await client.chat([
-            {"role": "user", "content": "Translate into English for an image-generation prompt. "
-                                        "Output only the translation.\n\n" + text},
+            {"role": "user", "content": prompt_text("panels.translate") + "\n\n" + text},
         ], temperature=0.2)
         return out.strip() or text
     except Exception:  # noqa: BLE001 -- an untranslated prompt still renders
@@ -214,7 +218,7 @@ async def plan_panels(project_id: int, *, replan: bool = False) -> list[dict[str
                         text = re.sub(r"^\s*\([^)]*\)\s*", "", text).strip().strip('"„“\'')
                         bubbles.append({"speaker": speaker.strip(), "text": text, "x": None, "y": None})
                 w, h = SIZES.get(clip.get("shot_size") or "", SIZES["medium"])
-                values = (project_id, clip["id"], f"{style}. {desc}. {ref_hint}{NO_TEXT}", w, h,
+                values = (project_id, clip["id"], f"{style}. {desc}. {ref_hint}{prompt_text("panels.no_text")}", w, h,
                           json.dumps(refs), json.dumps(bubbles, ensure_ascii=False),
                           _caption(scene.get("heading")) if i == 0 else None)
                 conn.execute(

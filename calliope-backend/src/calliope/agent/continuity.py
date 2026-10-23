@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.idea_guard import skip_reason
 from calliope.agent.llm import LLMClient, extract_json
 from calliope.config import settings
@@ -459,7 +460,7 @@ async def _llm_plan(board: dict[str, Any]) -> dict[str, Any]:
     try:
         raw = await client.chat(
             [
-                {"role": "system", "content": _PLAN_SYSTEM},
+                {"role": "system", "content": prompt_text("video.continuity_plan")},
                 {
                     "role": "user",
                     "content": "Write the continuity ledger for this board.\n\n" + _board_digest(board),
@@ -619,7 +620,7 @@ async def critique_prompt(
     if not plan:
         return {"ok": True, "notes": []}
     messages = [
-        {"role": "system", "content": _CRITIC_SYSTEM},
+        {"role": "system", "content": prompt_text("video.continuity_critic")},
         {
             "role": "user",
             "content": (

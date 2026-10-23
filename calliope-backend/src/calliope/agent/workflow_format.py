@@ -10,6 +10,7 @@ import datetime as dt
 import re
 from typing import Any
 
+from calliope.prompt_library import text as prompt_text
 from calliope.agent.llm import LLMClient, extract_json
 from calliope.agent.skills_store import list_skills, skills_root
 from calliope.comfyui.profiles import detect_prompt_profile, detect_prompt_skill
@@ -17,6 +18,9 @@ from calliope.comfyui.profiles import detect_prompt_profile, detect_prompt_skill
 MODEL_FILE_RE = re.compile(r"\.(safetensors|gguf|ckpt|pt|pth|bin)$", re.IGNORECASE)
 # Skills that are not prompt rules for a video model.
 NOT_PROMPT_SKILLS = {"novel-condense", "shot-composer-blockout", "scene-to-video", "character-consistency"}
+
+
+SKILL_DRAFT_SYSTEM = "You write concise technical Markdown. Output only the document."
 
 
 def workflow_fingerprint(workflow_json: dict[str, Any]) -> dict[str, list[str]]:
@@ -43,7 +47,7 @@ async def _ask(prompt: str) -> dict[str, Any]:
     client = LLMClient.for_role("main", timeout=180.0)
     try:
         messages = [
-            {"role": "system", "content": "You answer with a single JSON object and nothing else."},
+            {"role": "system", "content": prompt_text("common.json_only")},
             {"role": "user", "content": prompt},
         ]
         try:
@@ -114,7 +118,7 @@ async def draft_skill(workflow_json: dict[str, Any], *, kind: str, workflow_name
     client = LLMClient.for_role("writer", timeout=300.0)
     try:
         body = (await client.chat([
-            {"role": "system", "content": "You write concise technical Markdown. Output only the document."},
+            {"role": "system", "content": prompt_text("workflows.skill_draft_system")},
             {"role": "user", "content": (
                 f"Write prompt-writing rules for the video model family '{family}', used through a ComfyUI "
                 f"workflow named '{workflow_name}' (node types: {', '.join(fp['node_types'])}; model files: "
