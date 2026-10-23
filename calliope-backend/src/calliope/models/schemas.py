@@ -34,6 +34,8 @@ class ProjectUpdate(BaseModel):
     target_duration: str | None = None
     cover_path: str | None = None
     status: str | None = None
+    # Render style (render_styles.py); null clears it.
+    render_style_id: int | None = None
     # Part-by-part outline of a stored novel (projects.source_summaries).
     source_summaries: list[str] | None = None
 

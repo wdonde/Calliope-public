@@ -28,6 +28,8 @@ export interface Project {
 	/** Length of the stored novel (`source_text`), when one was condensed into `idea`. */
 	source_chars?: number | null;
 	format?: ProjectFormat;
+	/** The project's look (Settings > Styles); null = the format's built-in look. */
+	render_style_id?: number | null;
 	/** Part-by-part outline of the stored novel; Draft Storyline reads it. */
 	source_summaries?: string[];
 	/** Longest Story idea the built-in generators take (story endpoint only). */
@@ -480,7 +482,9 @@ export const projects = {
 	get: (id: number) => api<Project & { stats: ProjectStats }>(`/api/projects/${id}`),
 	update: (
 		id: number,
-		payload: Partial<ProjectCreate & { status?: string; cover_path?: string | null; source_summaries?: string[] }>,
+		payload: Partial<
+			ProjectCreate & { status?: string; cover_path?: string | null; source_summaries?: string[]; render_style_id?: number | null }
+		>,
 	) =>
 		api<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 	delete: (id: number) => api<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
@@ -641,6 +645,25 @@ export const settings = {
 			method: 'POST',
 			body: JSON.stringify(payload),
 		}),
+};
+
+/** A look for a project's pictures: category + name, style text, negative prompt, workflows by reference count. */
+export interface RenderStyle {
+	id: number;
+	category: string;
+	name: string;
+	style_prompt: string;
+	negative_prompt: string;
+	workflows: Record<string, number>;
+}
+
+export const renderStylesApi = {
+	list: () => api<RenderStyle[]>('/api/render-styles'),
+	create: (payload: Omit<RenderStyle, 'id'>) =>
+		api<RenderStyle>('/api/render-styles', { method: 'POST', body: JSON.stringify(payload) }),
+	update: (id: number, payload: Partial<Omit<RenderStyle, 'id'>>) =>
+		api<RenderStyle>(`/api/render-styles/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+	delete: (id: number) => api<{ ok: boolean }>(`/api/render-styles/${id}`, { method: 'DELETE' }),
 };
 
 export const workflows = {

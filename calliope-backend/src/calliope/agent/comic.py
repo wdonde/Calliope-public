@@ -42,6 +42,7 @@ STYLES = {
     "manga": ("Single full-frame illustration of one continuous scene, black-and-white Japanese manga art, "
               "detailed ink line art, screentone shading, high contrast, dramatic composition, no color"),
 }
+FRAME = "Single full-frame illustration of one continuous scene"
 NO_TEXT = "Plain clothing without lettering or name tags. Clean image without any text, speech bubbles or frame."
 SIZES = {"wide": (1216, 704), "medium": (1024, 1024), "closeUp": (896, 1152),
          "insert": (1024, 768), "overShoulder": (1024, 1024)}
@@ -60,6 +61,24 @@ def comic_dir(project_id: int) -> Path:
 
 
 # ── plan ──────────────────────────────────────────────────────────────────
+
+def _style_head(project: dict[str, Any], style: dict[str, Any] | None) -> str:
+    """What leads a panel prompt: the project's render style, else the format's built-in look."""
+    if style and style.get("style_prompt", "").strip():
+        return f"{style['style_prompt'].strip().rstrip('.')}. {FRAME}"
+    return STYLES.get(project.get("format") or "", STYLES["webtoon"])
+
+
+def _restyle(prompt: str, head: str) -> str:
+    """A planned prompt with its style head swapped for the current one (the style may have changed)."""
+    from calliope.render_styles import list_styles
+
+    known = [*STYLES.values(), *(f"{s['style_prompt'].strip().rstrip('.')}. {FRAME}" for s in list_styles())]
+    for old in sorted(known, key=len, reverse=True):
+        if old and prompt.startswith(old):
+            return head + prompt[len(old):]
+    return prompt if prompt.startswith(head) else f"{head}. {prompt}"
+
 
 def _clean_description(desc: str) -> str:
     desc = re.sub(r"^\w+ shot[:.]\s*", "", desc.strip(), flags=re.I)
@@ -163,7 +182,9 @@ async def plan_panels(project_id: int, *, replan: bool = False) -> list[dict[str
     conn = get_db(settings.db_path)
     try:
         project = row_to_dict(conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone())
-        style = STYLES.get(project.get("format") or "", STYLES["webtoon"])
+        from calliope.render_styles import for_project
+
+        style = _style_head(project, for_project(project_id))
         scenes = [row_to_dict(r) for r in conn.execute(
             "SELECT * FROM scenes WHERE project_id = ? ORDER BY order_index", (project_id,))]
         existing = {r["clip_id"]: row_to_dict(r) for r in conn.execute(
@@ -245,11 +266,12 @@ def list_panels(project_id: int, *, conn=None) -> list[dict[str, Any]]:
 
 # ── render ────────────────────────────────────────────────────────────────
 
-def _pick_workflow(n_refs: int) -> int | None:
-    """The panel workflow for this many references (Settings > Workflows roles, else Auto)."""
-    from calliope.workflow_roles import resolve
+def _pick_workflow(n_refs: int, style: dict[str, Any] | None = None) -> int | None:
+    """The panel workflow for this many references: the project's render style,
+    else Settings > Workflows roles, else Auto."""
+    from calliope.render_styles import workflow_for
 
-    return resolve({0: "panel_text", 1: "panel_refs_1", 2: "panel_refs_2"}[min(n_refs, 2)])
+    return workflow_for(style, n_refs, {0: "panel_text", 1: "panel_refs_1", 2: "panel_refs_2"}[min(n_refs, 2)])
 
 
 def _image_node_ids(workflow_id: int) -> list[str]:
@@ -264,6 +286,15 @@ def _image_node_ids(workflow_id: int) -> list[str]:
 def render_panels(project_id: int, *, panel_ids: list[int] | None = None, missing_only: bool = True,
                   reseed: bool = False) -> list[dict[str, Any]]:
     """Queue an image job per panel; returns the queued jobs."""
+    from calliope.render_styles import for_project, negative_values
+
+    conn = get_db(settings.db_path)
+    try:
+        project = row_to_dict(conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone())
+    finally:
+        conn.close()
+    style = for_project(project_id)
+    head = _style_head(project, style)
     jobs = []
     for p in list_panels(project_id):
         if panel_ids and p["id"] not in panel_ids:
@@ -271,17 +302,18 @@ def render_panels(project_id: int, *, panel_ids: list[int] | None = None, missin
         if missing_only and not panel_ids and p.get("image_path"):
             continue
         refs = [r for r in p["refs"] if Path(r).exists()][:2]
-        wf = _pick_workflow(len(refs))
+        wf = _pick_workflow(len(refs), style)
         if wf is None and refs:  # fall back to text only
-            refs, wf = [], _pick_workflow(0)
+            refs, wf = [], _pick_workflow(0, style)
         if wf is None:
             raise ValueError("No enabled image workflow for comic panels -- add one in Settings > Workflows.")
         seed = random.randint(1, 2**31 - 1) if reseed else p["seed"]
-        values: dict[str, Any] = {}
-        for inp in parse_dynamic_inputs(json.loads(_workflow_json(wf))):
+        inputs = parse_dynamic_inputs(json.loads(_workflow_json(wf)))
+        values: dict[str, Any] = negative_values(inputs, style)
+        for inp in inputs:
             role = inp.get("role")
             if role == "prompt":
-                values[str(inp["nodeId"])] = p["prompt"]
+                values[str(inp["nodeId"])] = _restyle(p["prompt"], head)
             elif role == "width":
                 values[str(inp["nodeId"])] = p["width"]
             elif role == "height":

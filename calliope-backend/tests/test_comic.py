@@ -255,3 +255,35 @@ def test_characters_are_matched_by_name_not_title():
     _, helmet = _reference_hint("Reed stands at the crater in his helmet.", [reed], ["Malone"])
     assert "same face, hair and outfit" in keep
     assert "clothing as described here" in helmet and "(Malone) stays small in the background" in helmet
+
+
+def test_render_style_picks_workflow_style_text_and_negative(client, tmp_path):
+    pid, _ = _comic_project(client, "webtoon", tmp_path)
+    client.post(f"/api/projects/{pid}/panels/plan")
+    klein = {"10": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "x"}, "_meta": {"title": "Prompt (Input:prompt)"}},
+             "40": {"class_type": "SaveImage", "inputs": {"images": ["10", 0]}, "_meta": {"title": "Out (Output:image)"}}}
+    client.post("/api/workflows", json={"name": "Klein text", "kind": "image", "workflow_json": klein})
+    sdxl = {**klein, "11": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "bad"},
+                            "_meta": {"title": "Negative (Input:negative)"}}}
+    sdxl_id = client.post("/api/workflows", json={"name": "SDXL text", "kind": "image", "workflow_json": sdxl}).json()["id"]
+    style = client.post("/api/render-styles", json={
+        "category": "Anime", "name": "Test anime", "style_prompt": "anime style, clean lineart",
+        "negative_prompt": "lowres, nsfw", "workflows": {"0": sdxl_id, "1": sdxl_id}}).json()
+    assert style["workflows"] == {"0": sdxl_id, "1": sdxl_id}
+    client.patch(f"/api/projects/{pid}", json={"render_style_id": style["id"]})
+
+    r = client.post(f"/api/projects/{pid}/panels/render").json()
+    job = get_db(settings.db_path).execute("SELECT workflow_id, payload_json FROM jobs WHERE id = ?",
+                                           (r["job_ids"][0],)).fetchone()
+    values = json.loads(job[1])["input_values"]
+    assert job[0] == sdxl_id and values["11"] == "lowres, nsfw"
+    # planned with the webtoon look; the render swaps in the project's style
+    assert values["10"].startswith("anime style, clean lineart. Single full-frame illustration")
+    assert "Korean webtoon" not in values["10"]
+
+    client.delete(f"/api/render-styles/{style['id']}")
+    assert client.get(f"/api/projects/{pid}").json()["render_style_id"] is None
+    r = client.post(f"/api/projects/{pid}/panels/render", json={"panel_ids": None, "missing_only": False}).json()
+    values = json.loads(get_db(settings.db_path).execute(
+        "SELECT payload_json FROM jobs WHERE id = ?", (r["job_ids"][0],)).fetchone()[0])["input_values"]
+    assert values["10"].startswith("Single full-frame illustration of one continuous scene, Korean webtoon")

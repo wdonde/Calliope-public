@@ -18,6 +18,7 @@ from calliope.db import get_db, migrate_db, rebase_stale_asset_paths
 from calliope.queue.worker import queue_worker
 from calliope.routers import (
     asset_library,
+    render_styles as render_styles_router,
     colorize as colorize_router,
     activity as activity_router,
     agent,
@@ -93,6 +94,9 @@ async def lifespan(app: FastAPI):
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.assets_dir.mkdir(parents=True, exist_ok=True)
     await migrate_db(settings.db_path)
+    from calliope.render_styles import seed_presets
+
+    seed_presets()
     # Folder moved? Stored asset paths still point at the old install root —
     # rebase them onto the current data dir before serving anything.
     conn = get_db(settings.db_path)
@@ -137,6 +141,7 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
     app.include_router(scenes.router, prefix="/api/projects", tags=["scenes"])
     app.include_router(assets.router, prefix="/api", tags=["assets"])
     app.include_router(asset_library.router, prefix="/api", tags=["asset-library"])
+    app.include_router(render_styles_router.router, prefix="/api", tags=["render-styles"])
     app.include_router(colorize_router.router, prefix="/api", tags=["colorize"])
     app.include_router(workflows.router, prefix="/api/workflows", tags=["workflows"])
     app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])

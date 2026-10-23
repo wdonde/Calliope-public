@@ -16,6 +16,7 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import RenderStylePicker from '$lib/components/RenderStylePicker.svelte';
 
 	interface Props {
 		projectId: number;
@@ -185,6 +186,7 @@
 			{isManga ? t('comic.leadManga') : t('comic.leadWebtoon')}
 			{#if panels.length}· {t('comic.progress', { done: rendered, n: panels.length })}{/if}
 		</p>
+		<RenderStylePicker {projectId} />
 	</div>
 	<div class="actions">
 		{#if panels.length === 0}

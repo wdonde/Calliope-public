@@ -66,10 +66,12 @@ async def enqueue_asset_jobs(
         {"message": "Preparing asset generation from saved image prompts…", "project_id": project_id},
     )
     # Without an explicit workflow each kind uses its role (Settings > Workflows).
-    from calliope.workflow_roles import resolve
+    from calliope.render_styles import for_project, negative_values, styled_prompt, workflow_for
+
+    style = for_project(project_id)
 
     def pick(role: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-        wf = _get_enabled_workflow("image", workflow_id if workflow_id is not None else resolve(role))
+        wf = _get_enabled_workflow("image", workflow_id if workflow_id is not None else workflow_for(style, 0, role))
         wf_json = json.loads(wf["workflow_json"]) if wf else {}
         return wf, parse_dynamic_inputs(wf_json) if wf_json else []
 
@@ -106,8 +108,8 @@ async def enqueue_asset_jobs(
                 continue
             values = smart_fill_inputs(
                 inputs,
-                prompt=prompt or None,
-                extra=input_values_override,
+                prompt=styled_prompt(prompt, style) if prompt else None,
+                extra={**negative_values(inputs, style), **(input_values_override or {})},
             )
             job = queue_manager.enqueue(
                 project_id=project_id,
@@ -151,8 +153,8 @@ async def enqueue_asset_jobs(
                     continue
                 values = smart_fill_inputs(
                     inputs,
-                    prompt=prompt or None,
-                    extra=input_values_override,
+                    prompt=styled_prompt(prompt, style) if prompt else None,
+                    extra={**negative_values(inputs, style), **(input_values_override or {})},
                 )
                 job = queue_manager.enqueue(
                     project_id=project_id,
@@ -195,8 +197,8 @@ async def enqueue_asset_jobs(
                     continue
                 values = smart_fill_inputs(
                     inputs,
-                    prompt=prompt or None,
-                    extra=input_values_override,
+                    prompt=styled_prompt(prompt, style) if prompt else None,
+                    extra={**negative_values(inputs, style), **(input_values_override or {})},
                 )
                 job = queue_manager.enqueue(
                     project_id=project_id,

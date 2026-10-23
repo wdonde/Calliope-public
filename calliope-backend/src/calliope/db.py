@@ -454,6 +454,23 @@ async def migrate_db(db_path: Path) -> None:
         )
         """
     )
+    # Render styles (render_styles.py): a look per category (Anime, Manga, 3D, ...)
+    # with its style text, negative prompt and workflows by reference count.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS render_styles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT NOT NULL,
+            name TEXT NOT NULL,
+            style_prompt TEXT NOT NULL DEFAULT '',
+            negative_prompt TEXT NOT NULL DEFAULT '',
+            workflows_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    if "render_style_id" not in project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN render_style_id INTEGER")
     # One comic panel per clip: its image prompt, references, speech bubbles.
     conn.execute(
         """

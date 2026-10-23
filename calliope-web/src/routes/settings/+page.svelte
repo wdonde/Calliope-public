@@ -5,6 +5,7 @@
 	import SettingsNav from '$lib/components/settings/SettingsNav.svelte';
 	import WorkflowsLibrary from '$lib/components/settings/WorkflowsLibrary.svelte';
 	import WorkflowRoles from '$lib/components/WorkflowRoles.svelte';
+	import RenderStyles from '$lib/components/RenderStyles.svelte';
 	import SkillsLibrary from '$lib/components/settings/SkillsLibrary.svelte';
 	import MemoryPanel from '$lib/components/settings/MemoryPanel.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
@@ -1205,11 +1206,13 @@
 				{:else if tab === 'workflows'}
 					<WorkflowRoles />
 					<WorkflowsLibrary />
+				{:else if tab === 'styles'}
+					<RenderStyles />
 				{:else if tab === 'skills'}
 					<SkillsLibrary />
 				{/if}
 
-				{#if tab !== 'workflows' && tab !== 'skills'}
+				{#if tab !== 'workflows' && tab !== 'skills' && tab !== 'styles'}
 					<div class="save-bar">
 						<span class="save-state" class:dirty={isDirty}>
 							{#if isDirty}

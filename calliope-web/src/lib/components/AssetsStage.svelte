@@ -43,6 +43,7 @@
 	import { tagMatches } from '$lib/tags';
 	import { toast } from '$lib/toast';
 	import { t } from '$lib/i18n.svelte';
+	import RenderStylePicker from '$lib/components/RenderStylePicker.svelte';
 
 	interface Props {
 		projectId: number;
@@ -802,6 +803,7 @@
 					: t('assets.itemRefs')}</span
 		>
 	{/snippet}
+	<div class="style-pick"><RenderStylePicker {projectId} /></div>
 	{#if tab === 'characters'}
 		<label class="wf-field">
 			<span class="field-label">{t('assets.wf.sheet')}</span>
@@ -1830,5 +1832,8 @@
 		clip: rect(0, 0, 0, 0);
 		white-space: nowrap;
 		border: 0;
+	}
+	.style-pick {
+		margin-bottom: 12px;
 	}
 </style>

@@ -6,6 +6,7 @@
 		{ id: 'llm', href: '/settings?tab=llm', labelKey: 'nav.llm', blurbKey: 'nav.llmBlurb' },
 		{ id: 'comfy', href: '/settings?tab=comfy', labelKey: 'nav.comfy', blurbKey: 'nav.comfyBlurb' },
 		{ id: 'workflows', href: '/settings?tab=workflows', labelKey: 'nav.workflows', blurbKey: 'nav.workflowsBlurb' },
+		{ id: 'styles', href: '/settings?tab=styles', labelKey: 'nav.styles', blurbKey: 'nav.stylesBlurb' },
 		{ id: 'agent', href: '/settings?tab=agent', labelKey: 'nav.agent', blurbKey: 'nav.agentBlurb' },
 		{ id: 'skills', href: '/settings?tab=skills', labelKey: 'nav.skills', blurbKey: 'nav.skillsBlurb' },
 		{ id: 'queue', href: '/settings?tab=queue', labelKey: 'nav.queue', blurbKey: 'nav.queueBlurb' },

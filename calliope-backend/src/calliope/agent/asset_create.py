@@ -113,17 +113,17 @@ def chosen_refs(entity: dict[str, Any]) -> list[str] | None:
 
 
 def usable_refs(images: list[str], kind: str, limit: int = DEFAULT_MAX_REFS,
-                chosen: list[str] | None = None) -> tuple[list[str], int | None]:
+                chosen: list[str] | None = None, style: dict[str, Any] | None = None) -> tuple[list[str], int | None]:
     """(references, workflow): the user's chosen pictures, or up to ``limit``
     picked by Calliope; as many as an enabled workflow takes (fewer when none
     has that many image inputs); none -> text workflow."""
     refs = list(chosen) if chosen else (pick_refs(images, limit) if images else [])
     while refs:
-        wf = _pick_workflow(len(refs), kind)
+        wf = _pick_workflow(len(refs), kind, style)
         if wf is not None:
             return refs, wf
         refs = refs[:-1]
-    return [], _pick_workflow(0, kind)
+    return [], _pick_workflow(0, kind, style)
 
 
 TAG_KEYS = {
@@ -339,13 +339,16 @@ def project_context(project_id: int | None) -> str:
     return f"{head}. {(p.get('idea') or '')[:1500]}".strip()
 
 
-def _pick_workflow(n_refs: int, kind: str = "character") -> int | None:
-    """The asset workflow for this many own pictures (Settings > Workflows roles, else Auto)."""
-    from calliope.workflow_roles import resolve
+def _pick_workflow(n_refs: int, kind: str = "character", style: dict[str, Any] | None = None) -> int | None:
+    """The asset workflow for this many own pictures: the project's render style,
+    else Settings > Workflows roles, else Auto."""
+    from calliope.render_styles import workflow_for
 
+    if style and style.get("workflows") and n_refs > 2:
+        return None  # style workflows take up to two references
     if n_refs:
-        return resolve(f"asset_refs_{min(n_refs, MAX_IMAGES)}")
-    return resolve({"character": "asset_sheet", "location": "asset_location", "item": "asset_item"}[kind])
+        return workflow_for(style, n_refs, f"asset_refs_{min(n_refs, MAX_IMAGES)}")
+    return workflow_for(style, 0, {"character": "asset_sheet", "location": "asset_location", "item": "asset_item"}[kind])
 
 
 COLOR_LINES = ("Hair", "Eyes", "Skin", "Color palette")
@@ -498,8 +501,11 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
                         target: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Queue the sheet/reference render with the asset's own pictures as references.
     ``target`` says where the worker writes the result (default: the project asset)."""
+    from calliope.render_styles import for_project, negative_values, styled_prompt
+
+    style = for_project(project_id)
     images = [p for p in entity.get("source_images") or [] if Path(p).is_file()]
-    refs, wf = usable_refs(images, kind, max_refs(entity), chosen_refs(entity))
+    refs, wf = usable_refs(images, kind, max_refs(entity), chosen_refs(entity), style)
     if wf is None:
         return None
     # What is sent is what the Image prompt field shows: the user's own text, or
@@ -515,7 +521,9 @@ def enqueue_from_images(project_id: int, kind: str, entity: dict[str, Any],
         conn.close()
     inputs = parse_dynamic_inputs(wf_json)
     image_nodes = [str(i["nodeId"]) for i in inputs if i.get("kind") == "image"]
-    values = smart_fill_inputs(inputs, prompt=prompt, extra=dict(zip(image_nodes, refs)))
+    prompt = styled_prompt(prompt, style)
+    values = smart_fill_inputs(inputs, prompt=prompt,
+                               extra={**negative_values(inputs, style), **dict(zip(image_nodes, refs))})
     return queue_manager.enqueue(
         project_id=project_id,
         kind="image",
