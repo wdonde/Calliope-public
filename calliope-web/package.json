@@ -15,6 +15,7 @@
 		"@sveltejs/adapter-static": "^3.0.8",
 		"@sveltejs/kit": "^2.70.3",
 		"@sveltejs/vite-plugin-svelte": "^5.0.0",
+		"@types/cytoscape": "^3.21.9",
 		"@types/node": "^22.13.0",
 		"autoprefixer": "^10.4.20",
 		"eslint": "^9.20.0",
@@ -32,6 +33,7 @@
 		"@tanstack/svelte-query": "^5.66.0",
 		"@types/three": "0.185.0",
 		"@xyflow/svelte": "^1.6.5",
+		"cytoscape": "^3.30.4",
 		"mannequin-js": "5.2.3",
 		"three": "0.185.1"
 	},

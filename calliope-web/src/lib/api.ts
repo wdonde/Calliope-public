@@ -704,6 +704,67 @@ export const promptsApi = {
 	},
 };
 
+export type DepKind =
+	| 'beat' | 'character' | 'location' | 'item' | 'scene' | 'clip' | 'panel'
+	| 'library' | 'style' | 'workflow' | 'prompt';
+
+/** One thing in a project's dependency map. */
+export interface DepNode {
+	id: string;
+	kind: DepKind;
+	label: string;
+	column: number;
+	entity_id?: number;
+	image?: string | null;
+	link?: string;
+	key?: string;
+	enabled?: boolean;
+	rendered?: boolean;
+	has_sheet?: boolean;
+	missing_refs?: string[];
+}
+
+/** "target is built from / uses source". */
+export interface DepEdge {
+	id: string;
+	source: string;
+	target: string;
+	rel: string;
+	configurable?: 'scene_character' | 'scene_location';
+	outdated?: boolean;
+}
+
+export interface DepFinding {
+	type: string;
+	severity: 'warn' | 'info';
+	nodes: string[];
+	text: string;
+	action?: 'delete' | 'merge' | 'update_from_library';
+}
+
+export interface DepMap {
+	project: { id: number; title: string; format: string | null };
+	nodes: DepNode[];
+	edges: DepEdge[];
+	findings: DepFinding[];
+}
+
+type DepConnection = { kind: 'scene_character' | 'scene_location'; source_id: number; target_id: number };
+
+export const dependenciesApi = {
+	get: (projectId: number, prompts = false) =>
+		api<DepMap>(`/api/projects/${projectId}/dependencies${prompts ? '?prompts=true' : ''}`),
+	unlink: (projectId: number, c: DepConnection) =>
+		api<{ ok: boolean }>(`/api/projects/${projectId}/dependencies/unlink`, { method: 'POST', body: JSON.stringify(c) }),
+	link: (projectId: number, c: DepConnection) =>
+		api<{ ok: boolean }>(`/api/projects/${projectId}/dependencies/link`, { method: 'POST', body: JSON.stringify(c) }),
+	merge: (projectId: number, kind: 'character' | 'location', keepId: number, dropId: number) =>
+		api<Record<string, unknown>>(`/api/projects/${projectId}/dependencies/merge`, {
+			method: 'POST',
+			body: JSON.stringify({ kind, keep_id: keepId, drop_id: dropId }),
+		}),
+};
+
 export const workflows = {
 	list: () => api<Workflow[]>('/api/workflows'),
 	analyze: (workflow_json: Record<string, unknown>) =>

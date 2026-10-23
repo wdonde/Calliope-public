@@ -18,6 +18,7 @@
 
 	const items = $derived(
 		[
+			{ id: 'map', key: 'nav.map', icon: 'link' },
 			{ id: 'story', key: 'nav.story', icon: 'story' },
 			{ id: 'assets', key: 'nav.assets', icon: 'assets' },
 			{ id: 'script', key: 'nav.script', icon: 'script' },

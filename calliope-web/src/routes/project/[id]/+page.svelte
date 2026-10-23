@@ -10,6 +10,7 @@
 	import ScriptStage from '$lib/components/ScriptStage.svelte';
 	import QueueStage from '$lib/components/QueueStage.svelte';
 	import ComicStage from '$lib/components/ComicStage.svelte';
+	import DependencyMap from '$lib/components/DependencyMap.svelte';
 	import ActivityStatus from '$lib/components/ActivityStatus.svelte';
 	import ActivityPanel from '$lib/components/ActivityPanel.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
@@ -34,7 +35,7 @@
 
 	// Stage <-> URL contract: the active stage lives in ?stage=story|assets|script|video.
 	// Switching stages = goto('?stage=<id>'); deep links and browser Back/Forward work.
-	const STAGES = ['story', 'assets', 'script', 'video'] as const;
+	const STAGES = ['map', 'story', 'assets', 'script', 'video'] as const;
 	type Stage = (typeof STAGES)[number];
 
 	function stageFromUrl(url: URL): Stage {
@@ -43,6 +44,7 @@
 	}
 
 	const STAGE_LABELS: Record<Stage, string> = {
+		map: '0 · Map',
 		story: '1 · Story',
 		assets: '2 · Assets',
 		script: '3 · Script',
@@ -192,7 +194,9 @@
 			<NavRail active={activeTab} onSelect={selectStage} format={projectFormat} />
 
 			<main class="stage" class:stage-fill={activeTab === 'video'}>
-				{#if activeTab === 'story'}
+				{#if activeTab === 'map'}
+					<DependencyMap {projectId} />
+				{:else if activeTab === 'story'}
 					{#if $storyQuery.isLoading}
 						<div class="card skel" aria-busy="true">
 							<Skeleton width="36%" height="22px" />
