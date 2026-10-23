@@ -6,6 +6,7 @@
 	import WorkflowsLibrary from '$lib/components/settings/WorkflowsLibrary.svelte';
 	import WorkflowRoles from '$lib/components/WorkflowRoles.svelte';
 	import RenderStyles from '$lib/components/RenderStyles.svelte';
+	import SettingsGuide from '$lib/components/settings/SettingsGuide.svelte';
 	import SkillsLibrary from '$lib/components/settings/SkillsLibrary.svelte';
 	import MemoryPanel from '$lib/components/settings/MemoryPanel.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
@@ -965,6 +966,7 @@
 				<section class="panel">
 					<h1>{t('settings.agentModelsSection')}</h1>
 					<p class="lead">{t('settings.agentModelsLead')}</p>
+					<SettingsGuide id="agent" steps={3} examples={3} tips={2} />
 					{#each AGENT_ROLES as role (role.key)}
 						{@const caps = roleCaps(s, role.key)}
 						{@const missing = caps ? (ROLE_NEEDS[role.key] ?? []).filter((c) => !caps.includes(c)) : []}
@@ -1204,11 +1206,14 @@
 						</label>
 					</section>
 				{:else if tab === 'workflows'}
+					<SettingsGuide id="workflows" steps={5} examples={3} tips={3} />
 					<WorkflowRoles />
 					<WorkflowsLibrary />
 				{:else if tab === 'styles'}
+					<SettingsGuide id="styles" steps={5} examples={3} tips={2} />
 					<RenderStyles />
 				{:else if tab === 'skills'}
+					<SettingsGuide id="skills" steps={4} examples={3} tips={1} code />
 					<SkillsLibrary />
 				{/if}
 
